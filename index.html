@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slip Sheet — Drawing &amp; Specification Manager</title>
+<style>
+:root {
+  --bg:#fbfbfa; --surface:#fff; --surface-hover:#f5f4f1; --surface-active:#eeedea;
+  --border:#e7e5e2; --border-light:#f1f0ed;
+  --text:#1a1a1a; --text-secondary:#6d6a65; --text-tertiary:#9f9c98;
+  --accent:#0d0d0d; --accent-hover:#2d2d2d;
+  --replace-bg:#ebf5ed; --replace-text:#16753a; --replace-dot:#2dc95e;
+  --insert-bg:#e9eff9; --insert-text:#184b8b; --insert-dot:#4080f0;
+  --warn-bg:#fef3c7; --warn-text:#92400e;
+  --error-bg:#fef2f2; --error-text:#991b1b;
+  --tab-active-bg:#f0eee9;
+  --radius:8px; --radius-lg:12px; --radius-xl:16px;
+  --shadow:0 1px 3px rgba(0,0,0,.05),0 1px 2px rgba(0,0,0,.03);
+  --shadow-lg:0 4px 20px rgba(0,0,0,.06),0 2px 6px rgba(0,0,0,.03);
+  --font:-apple-system,BlinkMacSystemFont,'SF Pro Display','Inter',system-ui,sans-serif;
+  --mono:'SF Mono','JetBrains Mono','Fira Code',monospace;
+  --ease:180ms cubic-bezier(.2,0,0,1); --ease-slow:300ms cubic-bezier(.2,0,0,1);
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column}
+
+/* ── Header ── */
+.app-header{height:44px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid var(--border);background:var(--surface);gap:10px;flex-shrink:0;z-index:10;user-select:none}
+.app-logo{font-weight:700;font-size:14px;letter-spacing:-.01em;color:var(--accent);display:flex;align-items:center;gap:7px}
+.app-logo .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+
+/* ── Tabs ── */
+.tab-bar{display:flex;gap:2px;margin-left:14px}
+.tab-btn{padding:8px 18px;border-radius:7px;font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--text-secondary);transition:var(--ease);letter-spacing:-.01em;position:relative}
+.tab-btn:hover{color:var(--text);background:var(--surface-hover)}
+.tab-btn.active{color:var(--text);background:var(--tab-active-bg)}
+.tab-btn .tab-dot{display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:7px;vertical-align:middle;position:relative;top:-1px}
+.tab-btn.drawing .tab-dot{background:var(--replace-dot)}
+.tab-btn.spec .tab-dot{background:var(--insert-dot)}
+
+.stages-wrap{display:flex;align-items:center;gap:3px;margin-left:16px}
+.stages-wrap .d{width:5px;height:5px;border-radius:50%;background:var(--border);transition:var(--ease)}
+.stages-wrap .d.on{background:var(--accent);width:7px;height:7px}
+.stages-wrap .d.past{background:var(--accent);opacity:.35}
+.stages-wrap .l{width:16px;height:1px;background:var(--border);transition:var(--ease)}
+.stages-wrap .l.past{background:var(--accent);opacity:.25}
+.stage-name{font-size:11px;color:var(--text-tertiary);margin-left:5px;font-weight:500;letter-spacing:.02em}
+.header-actions{margin-left:auto;display:flex;gap:8px}
+
+/* ── Main ── */
+main{flex:1;display:flex;overflow:hidden;position:relative}
+.tab-panel{display:none;width:100%;height:100%;flex-direction:column}
+.tab-panel.active{display:flex}
+.tab-panel.drawings{position:absolute;inset:0}
+
+/* ── Upload ── */
+.upload-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;padding:40px 48px;gap:24px;opacity:1;transform:none;transition:opacity var(--ease-slow),transform var(--ease-slow);flex:1}
+.upload-wrap.hidden{opacity:0;transform:translateY(6px);pointer-events:none;position:absolute}
+.upload-wrap h2{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.upload-wrap .subtitle{font-size:13px;color:var(--text-tertiary);margin-top:-18px}
+.upload-cards{display:flex;gap:18px;width:100%;max-width:820px}
+.upload-card{flex:1;border:2px dashed var(--border);border-radius:var(--radius-xl);padding:36px 24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;cursor:pointer;transition:var(--ease-slow);background:var(--surface);text-align:center;position:relative;min-height:180px}
+.upload-card:hover{border-color:var(--accent);background:var(--surface-hover);transform:translateY(-1px);box-shadow:var(--shadow-lg)}
+.upload-card.dragover{border-color:var(--accent);background:var(--surface-active);transform:scale(1.015)}
+.upload-card .card-icon{width:40px;height:40px;border-radius:var(--radius);background:var(--surface-hover);display:flex;align-items:center;justify-content:center;font-size:18px}
+.upload-card h3{font-size:15px;font-weight:600;letter-spacing:-.01em}
+.upload-card .hint{font-size:12px;color:var(--text-tertiary);line-height:1.5}
+.upload-card .card-meta{display:none;flex-direction:column;align-items:center;gap:4px}
+.upload-card.ready .card-meta{display:flex}
+.upload-card.ready .card-placeholder{display:none}
+.upload-card .fname{font-size:13px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.upload-card .mrow{font-size:11px;color:var(--text-secondary);display:flex;align-items:center;gap:4px}
+.upload-card .mdot{width:5px;height:5px;border-radius:50%}
+.upload-card .mdot.g{background:var(--replace-dot)}
+.upload-card .mdot.w{background:var(--warn-dot)}
+.upload-card .lbadge{font-size:10px;padding:2px 7px;border-radius:100px;background:var(--surface-active);color:var(--text-secondary);font-weight:500}
+.upload-card .lbadge.good{background:var(--replace-bg);color:var(--replace-text)}
+.upload-card .lbadge.warn{background:var(--warn-bg);color:var(--warn-text)}
+.upload-card .rechoose{font-size:10px;color:var(--accent);cursor:pointer;margin-top:2px;opacity:.6;transition:var(--ease);text-decoration:none}
+.upload-card .rechoose:hover{opacity:1}
+.arr-dvd{display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);font-size:16px;flex-shrink:0}
+
+/* ── Buttons ── */
+.btn{padding:7px 14px;border-radius:6px;font-family:var(--font);font-size:12px;font-weight:600;cursor:pointer;border:none;transition:var(--ease);letter-spacing:-.01em;display:inline-flex;align-items:center;gap:4px}
+.btn-pri{background:var(--accent);color:#fff}
+.btn-pri:hover{background:var(--accent-hover)}
+.btn-pri:disabled{opacity:.35;cursor:not-allowed}
+.btn-sec{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+.btn-sec:hover{background:var(--surface-hover)}
+.btn-ghost{background:transparent;color:var(--text-secondary)}
+.btn-ghost:hover{background:var(--surface-hover)}
+.btn-lg{padding:9px 22px;font-size:13px;border-radius:var(--radius)}
+
+/* ── Review ── */
+.review-wrap{display:none;width:100%;height:100%;flex-direction:column}
+.review-wrap.active{display:flex}
+.review-cols{flex:1;display:flex;overflow:hidden;min-height:0}
+.col-orig{width:240px;flex-shrink:0;border-right:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;overflow:hidden}
+.col-orig-hdr{padding:14px 16px;border-bottom:1px solid var(--border-light);font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em}
+.col-orig .info-row{padding:10px 16px;border-bottom:1px solid var(--border-light)}
+.col-orig .info-row .lbl{font-size:10px;color:var(--text-tertiary);font-weight:500;text-transform:uppercase;letter-spacing:.04em;margin-bottom:1px}
+.col-orig .info-row .val{font-size:12px;font-weight:600}
+.bmtree{flex:1;overflow-y:auto;padding:8px 16px}
+.bmtree h4{font-size:10px;color:var(--text-tertiary);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.bm-item{font-size:11px;padding:1px 0;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.7;cursor:default}
+.bm-item:hover{color:var(--text)}
+.bm-folder{font-weight:600}
+.bm-pg{color:var(--text-tertiary);font-size:10px;margin-left:3px}
+
+.col-changes{width:300px;flex-shrink:0;border-right:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;overflow:hidden}
+.ch-top{padding:12px 14px;border-bottom:1px solid var(--border-light);display:flex;flex-direction:column;gap:8px}
+.ch-top h3{font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em}
+.stat-row{display:flex;gap:6px}
+.stat{font-size:10px;padding:2px 7px;border-radius:100px;font-weight:600;display:flex;align-items:center;gap:3px}
+.stat.rpl{background:var(--replace-bg);color:var(--replace-text)}
+.stat.ins{background:var(--insert-bg);color:var(--insert-text)}
+.search-inp{width:100%;padding:6px 8px;border-radius:5px;border:1px solid var(--border);font-family:var(--font);font-size:11px;outline:none;background:var(--bg);transition:var(--ease)}
+.search-inp:focus{border-color:var(--accent)}
+.ch-scroll{flex:1;overflow-y:auto;padding:4px 8px}
+.ch-row{display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:5px;cursor:pointer;transition:var(--ease);margin-bottom:1px}
+.ch-row:hover{background:var(--surface-hover)}
+.ch-row.sel{background:var(--surface-active)}
+.cb{font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;flex-shrink:0;width:46px;text-align:center;text-transform:uppercase;letter-spacing:.03em}
+.cb.r{background:var(--replace-bg);color:var(--replace-text)}
+.cb.i{background:var(--insert-bg);color:var(--insert-text)}
+.cl{font-size:11px;font-weight:600;font-family:var(--mono);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cp{font-size:10px;color:var(--text-tertiary);white-space:nowrap;flex-shrink:0}
+.pos-edit{display:flex;align-items:center;gap:4px;padding:0 8px 6px;font-size:10px;color:var(--text-secondary)}
+.pos-edit input{width:40px;padding:1px 4px;border:1px solid var(--border);border-radius:3px;font-size:10px;font-family:var(--mono);text-align:center;outline:none}
+.pos-edit input:focus{border-color:var(--accent)}
+
+.col-preview{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+.pv-top{padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border-light);display:flex;align-items:center;justify-content:space-between}
+.pv-top h3{font-size:11px;font-weight:600;color:var(--text-secondary)}
+.pv-area{flex:1;display:flex;gap:1px;overflow:auto;padding:12px;align-items:flex-start;justify-content:center}
+.pv-slot{flex:1;min-width:0;max-width:50%;display:flex;flex-direction:column;align-items:center;gap:5px}
+.pv-slot .pv-lbl{font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.pv-slot canvas{max-width:100%;border-radius:3px;box-shadow:var(--shadow-lg);background:#fff}
+.pv-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--text-tertiary);font-size:12px;opacity:.45}
+.pv-empty .pv-ei{font-size:24px}
+
+/* Specification text preview */
+.spec-pv{flex:1;display:flex;flex-direction:column;overflow:auto;padding:12px;gap:0}
+.spec-pv .spv-hdr{padding:10px 14px;background:var(--surface);border-radius:var(--radius);font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;border:1px solid var(--border-light)}
+.spec-pv .spv-body{font-family:var(--mono);font-size:11px;line-height:1.7;white-space:pre-wrap;color:var(--text-secondary);padding:14px;background:var(--surface);border-radius:var(--radius);border:1px solid var(--border-light);max-height:calc(100% - 50px);overflow-y:auto}
+
+/* Bottom */
+.bottom-bar{height:52px;border-top:1px solid var(--border);background:var(--surface);display:none;align-items:center;justify-content:space-between;padding:0 16px;flex-shrink:0}
+.bottom-bar.active{display:flex}
+.bottom-summary{font-size:11px;color:var(--text-secondary)}
+.bottom-btns{display:flex;gap:6px}
+
+/* Progress */
+.prog-overlay{display:none;position:absolute;inset:0;background:rgba(251,251,250,.88);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:20;flex-direction:column;gap:14px}
+.prog-overlay.active{display:flex}
+.prog-overlay .stxt{font-size:13px;font-weight:600;color:var(--text);letter-spacing:-.01em}
+.prog-track{width:200px;height:3px;background:var(--border);border-radius:2px;overflow:hidden}
+.prog-fill{height:100%;background:var(--accent);border-radius:2px;transition:width 300ms ease;width:0%}
+
+/* Toast */
+.toast{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);padding:7px 16px;border-radius:100px;font-size:11px;font-weight:600;background:var(--accent);color:#fff;box-shadow:var(--shadow-lg);opacity:0;transition:opacity var(--ease);pointer-events:none;z-index:30}
+.toast.show{opacity:1}
+
+/* Errors */
+.error-card{background:var(--error-bg);color:var(--error-text);padding:14px 18px;border-radius:var(--radius-lg);font-size:12px;line-height:1.6;max-width:500px}
+.error-card strong{display:block;margin-bottom:2px}
+
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--text-tertiary)}
+
+@keyframes fadeInUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.fui{animation:fadeInUp var(--ease-slow) ease-out}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-logo"><span class="dot"></span>Slip Sheet</div>
+  <div class="tab-bar">
+    <button class="tab-btn drawing active" id="tabDrawing" onclick="switchTab('drawings')"><span class="tab-dot"></span>Drawing Update</button>
+    <button class="tab-btn spec" id="tabSpec" onclick="switchTab('specs')"><span class="tab-dot"></span>Specification Update</button>
+  </div>
+  <div class="stages-wrap" id="stageDots">
+    <div class="d" data-s="upload"></div><div class="l" data-s="up2an"></div>
+    <div class="d" data-s="analyze"></div><div class="l" data-s="an2rv"></div>
+    <div class="d" data-s="review"></div><div class="l" data-s="rv2gn"></div>
+    <div class="d" data-s="export"></div>
+    <span class="stage-name" id="stageLabel">Upload</span>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-ghost" id="resetBtnDrw" style="display:none" onclick="resetDrawing()">← New Set</button>
+    <button class="btn btn-ghost" id="resetBtnSpc" style="display:none" onclick="resetSpec()">← New Set</button>
+  </div>
+</header>
+
+<main>
+  <!-- ═══════════ DRAWING UPDATE TAB ═══════════ -->
+  <div class="tab-panel drawings active" id="panelDrawings">
+    <div class="upload-wrap" id="drwUpload">
+      <h2>Drawing Set Update</h2>
+      <p class="subtitle">Upload original and revised drawing PDFs — match by page label, preserve bookmarks</p>
+      <div class="upload-cards">
+        <div class="upload-card" id="ocard"><div class="card-icon">📄</div><div class="card-placeholder"><h3>Original Set</h3><p class="hint">Full drawing set with bookmarks</p></div><div class="card-meta"><span class="fname" id="ofn"></span><span class="mrow"><span class="mdot g"></span><span id="opg"></span></span><span class="mrow"><span class="mdot g" id="obdot"></span><span id="obm"></span></span><span class="lbadge" id="olbadge"></span><a class="rechoose" href="#" onclick="event.stopPropagation();$id('ofi').click()">Choose different file</a></div><input type="file" id="ofi" accept=".pdf" hidden></div>
+        <div class="arr-dvd">→</div>
+        <div class="upload-card" id="ucard"><div class="card-icon">🔄</div><div class="card-placeholder"><h3>Update Set</h3><p class="hint">Revised sheets with page labels</p></div><div class="card-meta"><span class="fname" id="ufn"></span><span class="mrow"><span class="mdot g"></span><span id="upg"></span></span><span class="lbadge" id="ulbadge"></span><a class="rechoose" href="#" onclick="event.stopPropagation();$id('ufi').click()">Choose different file</a></div><input type="file" id="ufi" accept=".pdf" hidden></div>
+      </div>
+      <button class="btn btn-pri btn-lg" id="drwAnalyzeBtn" disabled>Analyze Drawing Set →</button>
+    </div>
+    <div class="review-wrap" id="drwReview">
+      <div class="review-cols">
+        <div class="col-orig"><div class="col-orig-hdr">Original Set</div><div class="info-row"><div class="lbl">File</div><div class="val" id="ivFn" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</div></div><div class="info-row"><div class="lbl">Pages</div><div class="val" id="ivPg">—</div></div><div class="info-row"><div class="lbl">Bookmarks</div><div class="val" id="ivBm">—</div></div><div class="bmtree" id="bmTree"><h4>Bookmark Structure</h4></div></div>
+        <div class="col-changes"><div class="ch-top"><h3>Detected Changes</h3><div class="stat-row" id="drwStatRow"></div><input class="search-inp" placeholder="Filter sheets…" id="drwSearch"></div><div class="ch-scroll" id="drwChangesList"></div></div>
+        <div class="col-preview"><div class="pv-top"><h3 id="drwPvTitle">Select a sheet to preview</h3></div><div class="pv-area" id="drwPreviewArea"><div class="pv-empty"><div class="pv-ei">☝️</div><div>Select a sheet from the changes list</div></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ SPECIFICATION UPDATE TAB ═══════════ -->
+  <div class="tab-panel specs" id="panelSpecs">
+    <div class="upload-wrap" id="spcUpload">
+      <h2>Specification Update</h2>
+      <p class="subtitle">Upload original and revised specification PDFs — match by section number</p>
+      <div class="upload-cards">
+        <div class="upload-card" id="socard"><div class="card-icon">📋</div><div class="card-placeholder"><h3>Original Spec</h3><p class="hint">Full project specification with all sections</p></div><div class="card-meta"><span class="fname" id="sofn"></span><span class="mrow"><span class="mdot g"></span><span id="sopg"></span></span><span class="mrow"><span class="mdot g" id="sosdot"></span><span id="sosec"></span></span><span class="lbadge" id="solbadge"></span><a class="rechoose" href="#" onclick="event.stopPropagation();$id('sofi').click()">Choose different file</a></div><input type="file" id="sofi" accept=".pdf" hidden></div>
+        <div class="arr-dvd">→</div>
+        <div class="upload-card" id="sucard"><div class="card-icon">✏️</div><div class="card-placeholder"><h3>Updated Spec</h3><p class="hint">Revised specification sections</p></div><div class="card-meta"><span class="fname" id="sufn"></span><span class="mrow"><span class="mdot g"></span><span id="supg"></span></span><span class="mrow"><span class="mdot g"></span><span id="susec"></span></span><span class="lbadge" id="sulbadge"></span><a class="rechoose" href="#" onclick="event.stopPropagation();$id('sufi').click()">Choose different file</a></div><input type="file" id="sufi" accept=".pdf" hidden></div>
+      </div>
+      <button class="btn btn-pri btn-lg" id="spcAnalyzeBtn" disabled>Analyze Specification →</button>
+    </div>
+    <div class="review-wrap" id="spcReview">
+      <div class="review-cols">
+        <div class="col-orig"><div class="col-orig-hdr">Original Spec</div><div class="info-row"><div class="lbl">File</div><div class="val" id="sivFn" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</div></div><div class="info-row"><div class="lbl">Pages</div><div class="val" id="sivPg">—</div></div><div class="info-row"><div class="lbl">Sections</div><div class="val" id="sivSec">—</div></div><div class="bmtree" id="spcSectionsTree"><h4>Section List</h4></div></div>
+        <div class="col-changes"><div class="ch-top"><h3>Section Changes</h3><div class="stat-row" id="spcStatRow"></div><input class="search-inp" placeholder="Filter sections…" id="spcSearch"></div><div class="ch-scroll" id="spcChangesList"></div></div>
+        <div class="col-preview"><div class="pv-top"><h3 id="spcPvTitle">Select a section to preview</h3></div><div class="pv-area" id="spcPreviewArea"><div class="pv-empty"><div class="pv-ei">📝</div><div>Select a section from the changes list</div></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="prog-overlay" id="progOverlay">
+    <div class="stxt" id="progText">Processing…</div>
+    <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
+  </div>
+</main>
+
+<div class="bottom-bar" id="bottomBarDrw"><div class="bottom-summary" id="drwBottomSum"></div><div class="bottom-btns"><button class="btn btn-sec" id="drwCsvBtn">Export CSV</button><button class="btn btn-sec" id="drwJsonBtn">Export JSON</button><button class="btn btn-pri" id="drwGenBtn">Generate Updated PDF</button></div></div>
+<div class="bottom-bar" id="bottomBarSpc"><div class="bottom-summary" id="spcBottomSum"></div><div class="bottom-btns"><button class="btn btn-sec" id="spcCsvBtn">Export CSV</button><button class="btn btn-sec" id="spcJsonBtn">Export JSON</button><button class="btn btn-pri" id="spcGenBtn">Generate Updated Spec</button></div></div>
+<div class="toast" id="toast"></div>
+
+<script type="importmap">
+{ "imports": { "pdfjs-dist/": "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/", "pdf-lib": "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm" } }
+</script>
+<script type="module">
+import * as pdfjsLib from 'pdfjs-dist/build/pdf.min.mjs';
+import { PDFDocument } from 'pdf-lib';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/build/pdf.worker.min.mjs';
+
+// ── Shared Utils ──
+const $id = id => document.getElementById(id);
+function toast(msg) { const t = $id('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200); }
+function prog(msg, pct) { $id('progText').textContent = msg; $id('progFill').style.width = pct + '%'; $id('progOverlay').classList.add('active'); }
+function progOff() { $id('progOverlay').classList.remove('active'); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function download(blob, name) { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = name; a.click(); URL.revokeObjectURL(u); }
+function setStage(s) {
+  const stages = ['upload','analyze','review','export']; const idx = stages.indexOf(s);
+  document.querySelectorAll('.stages-wrap .d').forEach((d,i) => { d.classList.remove('on','past'); if (i<idx) d.classList.add('past'); if (i===idx) d.classList.add('on'); });
+  document.querySelectorAll('.stages-wrap .l').forEach((l,i) => l.classList.toggle('past', i<idx));
+  $id('stageLabel').textContent = s.charAt(0).toUpperCase()+s.slice(1);
+}
+
+// ── Tab Switching ──
+let activeTab = 'drawings';
+window.switchTab = function(tab) {
+  if (tab === activeTab) return;
+  activeTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', (b.id==='tabDrawing'&&tab==='drawings')||(b.id==='tabSpec'&&tab==='specs')));
+  $id('panelDrawings').classList.toggle('active', tab === 'drawings');
+  $id('panelSpecs').classList.toggle('active', tab === 'specs');
+  $id('bottomBarDrw').classList.toggle('active', tab === 'drawings' && Drw.stage === 'review');
+  $id('bottomBarSpc').classList.toggle('active', tab === 'specs' && Spc.stage === 'review');
+  $id('resetBtnDrw').style.display = (tab === 'drawings' && Drw.stage === 'review') ? '' : 'none';
+  $id('resetBtnSpc').style.display = (tab === 'specs' && Spc.stage === 'review') ? '' : 'none';
+  if (tab === 'drawings') setStage(Drw.stage); else setStage(Spc.stage);
+};
+
+// ═══════════════════════════ DRAWING UPDATE ═══════════════════════════
+const Drw = { orig:null, upd:null, actions:[], selIdx:-1, jsDocs:{orig:null,upd:null}, stage:'upload' };
+
+function drwReady() {
+  const b = $id('drwAnalyzeBtn');
+  b.disabled = !(Drw.orig && Drw.upd);
+  b.textContent = b.disabled ? 'Upload both PDFs to begin' : 'Analyze Drawing Set →';
+}
+
+async function drwParsePDF(file) {
+  const buf = await file.arrayBuffer();
+  const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+  const n = doc.numPages;
+  const labels = new Map(); let hasLabels = false;
+  const rawLabels = await doc.getPageLabels();
+  if (rawLabels && rawLabels.length === n) {
+    for (let i = 0; i < n; i++) { const lbl = rawLabels[i] || String(i + 1); labels.set(lbl, { pageNum: i + 1 }); if (lbl !== String(i + 1)) hasLabels = true; }
+  } else {
+    for (let i = 1; i <= n; i++) labels.set(String(i), { pageNum: i });
+  }
+  let bookmarks = [];
+  try { const outline = await doc.getOutline(); if (outline) bookmarks = await drwWalkOutline(outline, doc); } catch(e) {}
+  return { file, doc, pageCount:n, labels, bookmarks, hasLabels, arrayBuffer:buf, fileName:file.name };
+}
+
+async function drwWalkOutline(items, doc) {
+  const out = [];
+  for (const it of items) {
+    let pg = null;
+    try { if (it.dest) { const dest = typeof it.dest === 'string' ? await doc.getDestination(it.dest) : it.dest; if (dest) pg = await doc.getPageIndex(dest[0]).then(i => i + 1).catch(() => null); } } catch(e) {}
+    const e = { title: it.title, page: pg, children: [] };
+    if (it.items?.length) e.children = await drwWalkOutline(it.items, doc);
+    out.push(e);
+  }
+  return out;
+}
+
+function drwCountBmPages(bms) { let n = 0; for (const b of bms) { if (b.page) n++; if (b.children) n += drwCountBmPages(b.children); } return n; }
+
+function drwSetupCard(cardId, inputId, type) {
+  const card = $id(cardId), input = $id(inputId);
+  card.addEventListener('dragover', e => { e.preventDefault(); card.classList.add('dragover'); });
+  card.addEventListener('dragleave', () => card.classList.remove('dragover'));
+  card.addEventListener('drop', e => { e.preventDefault(); card.classList.remove('dragover'); const f = e.dataTransfer.files[0]; if (f?.type==='application/pdf') drwLoadFile(f, type); else toast('Please drop a PDF file'); });
+  card.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => { if (input.files[0]) drwLoadFile(input.files[0], type); });
+}
+
+async function drwLoadFile(file, type) {
+  const card = $id(type==='original'?'ocard':'ucard');
+  prog('Reading PDF…', 30);
+  try {
+    const parsed = await drwParsePDF(file);
+    if (type === 'original') {
+      Drw.orig = parsed;
+      $id('ofn').textContent = parsed.fileName; $id('opg').textContent = `${parsed.pageCount} pages`; $id('obm').textContent = `${parsed.bookmarks.length} bookmarks`;
+      $id('obdot').className = 'mdot ' + (parsed.bookmarks.length ? 'g' : 'w');
+      const b = $id('olbadge'); b.textContent = parsed.hasLabels ? `${parsed.labels.size} unique labels` : 'No page labels — using page numbers'; b.className = 'lbadge ' + (parsed.hasLabels ? 'good' : 'warn');
+      card.classList.add('ready');
+      if (parsed.bookmarks.length) drwRenderBmTree(parsed.bookmarks);
+    } else {
+      Drw.upd = parsed;
+      $id('ufn').textContent = parsed.fileName; $id('upg').textContent = `${parsed.pageCount} pages`;
+      const b = $id('ulbadge'); b.textContent = parsed.hasLabels ? `${parsed.labels.size} unique labels` : 'No page labels — using page numbers'; b.className = 'lbadge ' + (parsed.hasLabels ? 'good' : 'warn');
+      card.classList.add('ready');
+    }
+    drwReady(); progOff();
+  } catch(e) { progOff(); toast('Could not read this PDF'); console.error(e); }
+}
+drwSetupCard('ocard','ofi','original'); drwSetupCard('ucard','ufi','update');
+
+function drwRenderBmTree(bms, parent, depth=0) {
+  const el = parent || $id('bmTree'); if (!parent) el.innerHTML = '<h4>Bookmark Structure</h4>';
+  for (const b of bms) {
+    const d = document.createElement('div'); d.className = 'bm-item'; d.style.paddingLeft = (depth*14)+'px';
+    d.innerHTML = `${b.children?.length?'📁 ':'📄 '}<span class="${b.children?.length?'bm-folder':''}">${escHtml(b.title)}</span>${b.page?'<span class="bm-pg">p.'+b.page+'</span>':''}`;
+    el.appendChild(d); if (b.children?.length) drwRenderBmTree(b.children, el, depth+1);
+  }
+}
+
+async function drwRunAnalysis() {
+  if (!Drw.orig || !Drw.upd) return;
+  Drw.stage = 'analyze'; setStage('analyze');
+  prog('Matching sheets by page label…', 40); await sleep(200);
+  const ol = Drw.orig.labels, ul = Drw.upd.labels;
+  const origOrder = [...ol.entries()].sort((a,b) => a[1].pageNum - b[1].pageNum);
+  const actions = [];
+  for (const [label, {pageNum}] of origOrder) {
+    if (ul.has(label)) actions.push({ type:'replace', label, origPage:pageNum, updatePage:ul.get(label).pageNum, newPage:0 });
+  }
+  for (const [label, {pageNum}] of ul) {
+    if (!ol.has(label)) actions.push({ type:'insert', label, origPage:null, updatePage:pageNum, newPage:0, newPos:undefined });
+  }
+  const reps = actions.filter(a => a.type==='replace'), inss = actions.filter(a => a.type==='insert');
+  reps.forEach((a,i) => a.newPage = i + 1);
+  inss.forEach((a,i) => { a.newPage = reps.length + i + 1; a.newPos = a.newPage; });
+  Drw.actions = [...reps, ...inss];
+  Drw.stage = 'review'; setStage('review');
+  drwShowReview(); progOff();
+  toast(`${reps.length} replacements, ${inss.length} insertions found`);
+}
+
+function drwShowReview() {
+  $id('drwUpload').classList.add('hidden'); $id('drwReview').classList.add('active');
+  $id('bottomBarDrw').classList.add('active'); $id('resetBtnDrw').style.display = '';
+  const o = Drw.orig;
+  $id('ivFn').textContent = o.fileName; $id('ivPg').textContent = o.pageCount;
+  $id('ivBm').textContent = `${drwCountBmPages(o.bookmarks)} linked pages in ${o.bookmarks.length} top-level`;
+  const rc = Drw.actions.filter(a => a.type==='replace').length, ic = Drw.actions.filter(a => a.type==='insert').length;
+  $id('drwStatRow').innerHTML = `<span class="stat rpl"><span>↻</span> ${rc} Replace</span><span class="stat ins"><span>+</span> ${ic} Insert</span>`;
+  $id('drwBottomSum').textContent = `${rc+ic} changes · Original ${o.pageCount}p → Updated ~${o.pageCount-rc+Drw.actions.length}p`;
+  drwRenderChanges();
+  $id('drwSearch').oninput = drwRenderChanges;
+  $id('drwCsvBtn').onclick = () => drwExport('csv');
+  $id('drwJsonBtn').onclick = () => drwExport('json');
+  $id('drwGenBtn').onclick = drwGeneratePDF;
+}
+
+function drwRenderChanges() {
+  const q = ($id('drwSearch').value||'').toLowerCase();
+  let h = '';
+  Drw.actions.forEach((a,i) => {
+    if (q && !a.label.toLowerCase().includes(q)) return;
+    const sel = i===Drw.selIdx ? ' sel' : '';
+    h += `<div class="ch-row${sel}" id="dcr${i}" onclick="drwSelect(${i})"><span class="cb ${a.type==='replace'?'r':'i'}">${a.type.toUpperCase()}</span><span class="cl">${escHtml(a.label)}</span><span class="cp">${a.type==='replace' ? `p.${a.origPage} → p.${a.newPage}` : `→ p.${a.newPage}`}</span></div>`;
+    if (a.type==='insert' && sel) h += `<div class="pos-edit">Insert after position <input type="number" value="${a.newPos}" min="1" max="${Drw.actions.length}" onchange="drwSetPos(${i},this.value)" onclick="event.stopPropagation()"> in new document</div>`;
+  });
+  $id('drwChangesList').innerHTML = h || '<div style="padding:20px;text-align:center;color:var(--text-tertiary);font-size:11px">No sheets match your filter</div>';
+}
+
+window.drwSelect = function(idx) { Drw.selIdx = idx; drwRenderChanges(); drwRenderPreview(idx); $id('dcr'+idx)?.scrollIntoView({ block:'nearest', behavior:'smooth' }); };
+window.drwSetPos = function(idx, v) { const n = parseInt(v); if (isNaN(n)||n<1) return; Drw.actions[idx].newPos = n; Drw.actions[idx].newPage = n; toast('Insert position updated'); };
+
+async function drwRenderPreview(idx) {
+  const a = Drw.actions[idx], area = $id('drwPreviewArea');
+  $id('drwPvTitle').textContent = a ? `Sheet ${a.label}` : 'Select a sheet to preview';
+  if (!a) { area.innerHTML = '<div class="pv-empty"><div class="pv-ei">☝️</div><div>Select a sheet to preview</div></div>'; return; }
+  area.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-tertiary);font-size:12px">Loading preview…</div>';
+  try {
+    if (a.type === 'replace') {
+      if (!Drw.jsDocs.orig) Drw.jsDocs.orig = await pdfjsLib.getDocument({ data: await Drw.orig.file.arrayBuffer() }).promise;
+      if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await Drw.upd.file.arrayBuffer() }).promise;
+      const [op, up] = await Promise.all([Drw.jsDocs.orig.getPage(a.origPage), Drw.jsDocs.upd.getPage(a.updatePage)]);
+      const [oc, uc] = await Promise.all([drwRenderPage(op), drwRenderPage(up)]);
+      area.innerHTML = `<div class="pv-slot"><span class="pv-lbl">Original · Page ${a.origPage}</span>${oc?'<canvas></canvas>':'<div style="padding:14px;color:var(--text-tertiary);font-size:10px">Preview unavailable</div>'}</div><div class="pv-slot"><span class="pv-lbl">Updated · Page ${a.updatePage}</span>${uc?'<canvas></canvas>':'<div style="padding:14px;color:var(--text-tertiary);font-size:10px">Preview unavailable</div>'}</div>`;
+      drwCopyCv(area.querySelector('.pv-slot:first-child canvas'), oc);
+      drwCopyCv(area.querySelector('.pv-slot:last-child canvas'), uc);
+    } else {
+      if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await Drw.upd.file.arrayBuffer() }).promise;
+      const uc = await drwRenderPage(await Drw.jsDocs.upd.getPage(a.updatePage));
+      area.innerHTML = `<div class="pv-slot" style="max-width:60%"><span class="pv-lbl">New Sheet · ${escHtml(a.label)}</span>${uc?'<canvas></canvas>':'<div style="padding:14px;color:var(--text-tertiary);font-size:10px">Preview unavailable</div>'}</div>`;
+      drwCopyCv(area.querySelector('canvas'), uc);
+    }
+  } catch(e) { area.innerHTML = `<div class="pv-empty"><div>⚠️ Preview error</div><div style="font-size:10px">${escHtml(e.message)}</div></div>`; }
+}
+async function drwRenderPage(page) { const vp = page.getViewport({scale:.45}); const c = document.createElement('canvas'); c.width=vp.width; c.height=vp.height; try { await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise; return c; } catch(e) { return null; } }
+function drwCopyCv(el, src) { if (!el||!src) return; el.width=src.width; el.height=src.height; el.getContext('2d').drawImage(src,0,0); }
+
+async function drwGeneratePDF() {
+  if (!Drw.actions.length) { toast('No changes to generate'); return; }
+  Drw.stage = 'export'; setStage('export');
+  prog('Loading PDFs…', 5);
+  try {
+    const [origP, updP] = await Promise.all([PDFDocument.load(await Drw.orig.file.arrayBuffer()), PDFDocument.load(await Drw.upd.file.arrayBuffer())]);
+    prog('Building page order…', 20); await sleep(60);
+    const newP = await PDFDocument.create(); const origN = origP.getPageCount();
+    const repMap = new Map(); Drw.actions.filter(a => a.type==='replace').forEach(a => repMap.set(a.origPage-1, a));
+    const ins = Drw.actions.filter(a => a.type==='insert').sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
+    let insI=0, cur=0; const npM={};
+    for (let i=0; i<origN; i++) {
+      while (insI<ins.length && ins[insI].newPos <= cur+1) { const a=ins[insI]; const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); cur++; npM[a.label]=cur; insI++; }
+      if (repMap.has(i)) { const a=repMap.get(i); const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); cur++; npM[a.label]=cur; }
+      else { const [cp]=await newP.copyPages(origP,[i]); newP.addPage(cp); cur++; }
+    }
+    while (insI<ins.length) { const a=ins[insI]; const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); cur++; npM[a.label]=cur; insI++; }
+    prog('Finalizing PDF…', 85); await sleep(60);
+    const bytes = await newP.save(); download(new Blob([bytes],{type:'application/pdf'}), Drw.orig.fileName.replace(/\.pdf$/i,'')+'_Updated.pdf');
+    Drw.actions.forEach(ac => { if (npM[ac.label]) ac.newPage = npM[ac.label]; });
+    prog('Done!',100); await sleep(300); progOff(); toast('Updated PDF generated ✓');
+    Drw.stage = 'review'; setStage('review');
+  } catch(e) { progOff(); toast('Error: '+e.message); Drw.stage='review'; setStage('review'); }
+}
+
+function drwExport(fmt) {
+  const rc = Drw.actions.filter(a => a.type==='replace').length, ic = Drw.actions.filter(a => a.type==='insert').length;
+  const rows = [{ op:'—',label:'SUMMARY',action:'',up:'—',np:'—',notes:`${rc} replacements, ${ic} insertions · ${Drw.orig.pageCount}p → ${Drw.orig.pageCount-rc+Drw.actions.length}p` }, { op:'',label:'',action:'',up:'',np:'',notes:'' }];
+  for (const a of Drw.actions) rows.push({ op:a.type==='replace'?String(a.origPage):'—', label:a.label, action:a.type.toUpperCase(), up:String(a.updatePage), np:String(a.newPage||a.newPos||'—'), notes:'' });
+  if (fmt==='csv') { let csv='Original Page,Sheet Label,Action,Update Page,New Page,Notes\n'; csv+=rows.map(r=>`"${r.op}","${r.label}","${r.action}","${r.up}","${r.np}","${r.notes}"`).join('\n'); download(new Blob([csv],{type:'text/csv'}),'drawing_slip_sheet.csv'); toast('CSV downloaded ✓'); }
+  else { const doc={generated:new Date().toISOString(),summary:{original:Drw.orig.fileName,update:Drw.upd.fileName,originalPages:Drw.orig.pageCount,updatePages:Drw.upd.pageCount,replacements:rc,insertions:ic,updatedPages:Drw.orig.pageCount-rc+Drw.actions.length},actions:Drw.actions.map(a=>({type:a.type,label:a.label,originalPage:a.type==='replace'?a.origPage:null,updatePage:a.updatePage,newPage:a.newPage||a.newPos}))}; download(new Blob([JSON.stringify(doc,null,2)],{type:'application/json'}),'drawing_slip_sheet.json'); toast('JSON downloaded ✓'); }
+}
+
+window.resetDrawing = function() {
+  Drw.orig = Drw.upd = null; Drw.actions = []; Drw.selIdx = -1; Drw.jsDocs = { orig:null, upd:null }; Drw.stage = 'upload';
+  $id('drwUpload').classList.remove('hidden'); $id('drwReview').classList.remove('active');
+  $id('bottomBarDrw').classList.remove('active'); $id('resetBtnDrw').style.display = 'none';
+  $id('ocard').classList.remove('ready'); $id('ucard').classList.remove('ready');
+  $id('ofi').value = ''; $id('ufi').value = '';
+  $id('drwPreviewArea').innerHTML = '<div class="pv-empty"><div class="pv-ei">☝️</div><div>Select a sheet from the changes list</div></div>';
+  $id('drwChangesList').innerHTML = ''; $id('bmTree').innerHTML = '<h4>Bookmark Structure</h4>'; $id('drwSearch').value = '';
+  setStage('upload'); drwReady();
+};
+
+// ═══════════════════════════ SPECIFICATION UPDATE ═══════════════════════════
+const Spc = { orig:null, upd:null, sections:[], actions:[], selIdx:-1, stage:'upload' };
+
+const SEC_RE = /(?:SECTION|DIVISION)\s+(\d{2}(?:\s+\d{2}){0,3})\b/i;
+const END_SEC_RE = /\bEND\s+OF\s+SECTION\b/i;
+
+function spcReady() {
+  const b = $id('spcAnalyzeBtn');
+  b.disabled = !(Spc.orig && Spc.upd);
+  b.textContent = b.disabled ? 'Upload both PDFs to begin' : 'Analyze Specification →';
+}
+
+async function spcExtractSections(file) {
+  const buf = await file.arrayBuffer();
+  const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+  const n = doc.numPages;
+  // Extract all text
+  let fullText = '';
+  const pageStarts = []; // cumulative char offset per page
+  for (let i = 1; i <= n; i++) {
+    pageStarts.push(fullText.length);
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    const pageText = content.items.map(it => it.str).join(' ');
+    fullText += pageText + '\n';
+  }
+  // Find sections
+  const sections = [];
+  const lines = fullText.split('\n');
+  let currentSection = null;
+  let currentText = [];
+  let currentStartPage = 1, currentEndPage = 1;
+  let charOffset = 0;
+
+  for (const line of lines) {
+    charOffset += line.length + 1;
+    const secMatch = line.match(SEC_RE);
+    if (secMatch) {
+      if (currentSection) {
+        currentSection.text = currentText.join('\n').trim();
+        currentSection.endPage = spcCharToPage(charOffset, pageStarts);
+        sections.push(currentSection);
+      }
+      currentSection = { number: secMatch[1].trim(), title: line.trim(), startPage: spcCharToPage(charOffset - line.length, pageStarts), endPage: 0, text: '' };
+      currentText = [];
+    } else if (currentSection) {
+      if (END_SEC_RE.test(line)) {
+        currentText.push(line);
+        currentSection.text = currentText.join('\n').trim();
+        currentSection.endPage = spcCharToPage(charOffset, pageStarts);
+        sections.push(currentSection);
+        currentSection = null; currentText = [];
+      } else {
+        currentText.push(line);
+      }
+    }
+  }
+  if (currentSection && currentText.length) {
+    currentSection.text = currentText.join('\n').trim();
+    currentSection.endPage = n;
+    sections.push(currentSection);
+  }
+  return { file, doc, pageCount:n, sections, arrayBuffer:buf, fileName:file.name, fullText, pageStarts };
+}
+
+function spcCharToPage(charOffset, pageStarts) {
+  for (let i = pageStarts.length - 1; i >= 0; i--) {
+    if (charOffset >= pageStarts[i]) return i + 1;
+  }
+  return 1;
+}
+
+function spcSetupCard(cardId, inputId, type) {
+  const card = $id(cardId), input = $id(inputId);
+  card.addEventListener('dragover', e => { e.preventDefault(); card.classList.add('dragover'); });
+  card.addEventListener('dragleave', () => card.classList.remove('dragover'));
+  card.addEventListener('drop', e => { e.preventDefault(); card.classList.remove('dragover'); const f = e.dataTransfer.files[0]; if (f?.type==='application/pdf') spcLoadFile(f, type); else toast('Please drop a PDF file'); });
+  card.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => { if (input.files[0]) spcLoadFile(input.files[0], type); });
+}
+
+async function spcLoadFile(file, type) {
+  const card = $id(type==='original'?'socard':'sucard');
+  prog('Reading specification PDF…', 30);
+  try {
+    const parsed = await spcExtractSections(file);
+    if (type === 'original') {
+      Spc.orig = parsed;
+      $id('sofn').textContent = parsed.fileName; $id('sopg').textContent = `${parsed.pageCount} pages`; $id('sosec').textContent = `${parsed.sections.length} sections detected`;
+      $id('sosdot').className = 'mdot ' + (parsed.sections.length ? 'g' : 'w');
+      const b = $id('solbadge'); b.textContent = parsed.sections.length ? `${parsed.sections.length} sections found` : 'No sections detected'; b.className = 'lbadge ' + (parsed.sections.length ? 'good' : 'warn');
+      card.classList.add('ready');
+      if (parsed.sections.length) spcRenderSectionTree(parsed.sections);
+    } else {
+      Spc.upd = parsed;
+      $id('sufn').textContent = parsed.fileName; $id('supg').textContent = `${parsed.pageCount} pages`; $id('susec').textContent = `${parsed.sections.length} sections detected`;
+      const b = $id('sulbadge'); b.textContent = parsed.sections.length ? `${parsed.sections.length} sections found` : 'No sections detected'; b.className = 'lbadge ' + (parsed.sections.length ? 'good' : 'warn');
+      card.classList.add('ready');
+    }
+    spcReady(); progOff();
+  } catch(e) { progOff(); toast('Could not read this PDF'); console.error(e); }
+}
+spcSetupCard('socard','sofi','original'); spcSetupCard('sucard','sufi','update');
+
+function spcRenderSectionTree(sections, parent) {
+  const el = parent || $id('spcSectionsTree'); if (!parent) el.innerHTML = '<h4>Section List</h4>';
+  for (const sec of sections) {
+    const d = document.createElement('div'); d.className = 'bm-item';
+    d.innerHTML = `📄 <span class="bm-folder">${escHtml(sec.number)}</span> <span style="color:var(--text-tertiary);font-size:10px">${escHtml((sec.title||'').substring(0,60))}</span>`;
+    el.appendChild(d);
+  }
+}
+
+async function spcRunAnalysis() {
+  if (!Spc.orig || !Spc.upd) return;
+  Spc.stage = 'analyze'; setStage('analyze');
+  prog('Matching sections by number…', 40); await sleep(200);
+
+  const origSecs = Spc.orig.sections;
+  const updSecs = Spc.upd.sections;
+  const origMap = new Map(origSecs.map(s => [s.number, s]));
+  const updMap = new Map(updSecs.map(s => [s.number, s]));
+
+  const actions = [];
+  // Walk original sections in order
+  for (const [i, origSec] of origSecs.entries()) {
+    if (updMap.has(origSec.number)) {
+      const updSec = updMap.get(origSec.number);
+      actions.push({ type:'replace', number:origSec.number, title:origSec.title, origIdx:i, origPage:origSec.startPage, updatePage:updSec.startPage, origText:origSec.text, updateText:updSec.text, newIdx:0 });
+    }
+  }
+  // Inserts
+  for (const updSec of updSecs) {
+    if (!origMap.has(updSec.number)) {
+      actions.push({ type:'insert', number:updSec.number, title:updSec.title, origIdx:null, origPage:null, updatePage:updSec.startPage, origText:null, updateText:updSec.text, newIdx:0, newPos:undefined });
+    }
+  }
+
+  const reps = actions.filter(a => a.type==='replace'), inss = actions.filter(a => a.type==='insert');
+  reps.forEach((a,i) => a.newIdx = i + 1);
+  inss.forEach((a,i) => { a.newIdx = reps.length + i + 1; a.newPos = a.newIdx; });
+  Spc.actions = [...reps, ...inss];
+  Spc.stage = 'review'; setStage('review');
+  spcShowReview(); progOff();
+  toast(`${reps.length} replacements, ${inss.length} insertions found`);
+}
+
+function spcShowReview() {
+  $id('spcUpload').classList.add('hidden'); $id('spcReview').classList.add('active');
+  $id('bottomBarSpc').classList.add('active'); $id('resetBtnSpc').style.display = '';
+  const o = Spc.orig;
+  $id('sivFn').textContent = o.fileName; $id('sivPg').textContent = o.pageCount; $id('sivSec').textContent = `${o.sections.length} sections`;
+  const rc = Spc.actions.filter(a => a.type==='replace').length, ic = Spc.actions.filter(a => a.type==='insert').length;
+  $id('spcStatRow').innerHTML = `<span class="stat rpl"><span>↻</span> ${rc} Replace</span><span class="stat ins"><span>+</span> ${ic} Insert</span>`;
+  $id('spcBottomSum').textContent = `${rc+ic} section changes · Original ${o.sections.length} sections → Updated ~${o.sections.length-rc+Spc.actions.length} sections`;
+  spcRenderChanges();
+  $id('spcSearch').oninput = spcRenderChanges;
+  $id('spcCsvBtn').onclick = () => spcExport('csv');
+  $id('spcJsonBtn').onclick = () => spcExport('json');
+  $id('spcGenBtn').onclick = spcGeneratePDF;
+}
+
+function spcRenderChanges() {
+  const q = ($id('spcSearch').value||'').toLowerCase();
+  let h = '';
+  Spc.actions.forEach((a,i) => {
+    if (q && !a.number.toLowerCase().includes(q) && !(a.title||'').toLowerCase().includes(q)) return;
+    const sel = i===Spc.selIdx ? ' sel' : '';
+    h += `<div class="ch-row${sel}" id="scr${i}" onclick="spcSelect(${i})"><span class="cb ${a.type==='replace'?'r':'i'}">${a.type.toUpperCase()}</span><span class="cl">${escHtml(a.number)}</span><span class="cp">${a.type==='replace' ? `§${a.origIdx+1} → §${a.newIdx}` : `→ §${a.newIdx}`}</span></div>`;
+    if (a.type==='insert' && sel) h += `<div class="pos-edit">Insert after section index <input type="number" value="${a.newPos}" min="1" max="${Spc.actions.length}" onchange="spcSetPos(${i},this.value)" onclick="event.stopPropagation()"> in new document</div>`;
+  });
+  $id('spcChangesList').innerHTML = h || '<div style="padding:20px;text-align:center;color:var(--text-tertiary);font-size:11px">No sections match your filter</div>';
+}
+
+window.spcSelect = function(idx) { Spc.selIdx = idx; spcRenderChanges(); spcRenderPreview(idx); $id('scr'+idx)?.scrollIntoView({ block:'nearest', behavior:'smooth' }); };
+window.spcSetPos = function(idx, v) { const n = parseInt(v); if (isNaN(n)||n<1) return; Spc.actions[idx].newPos = n; Spc.actions[idx].newIdx = n; toast('Insert position updated'); };
+
+function spcRenderPreview(idx) {
+  const a = Spc.actions[idx], area = $id('spcPreviewArea');
+  $id('spcPvTitle').textContent = a ? `Section ${a.number}` : 'Select a section to preview';
+  if (!a) { area.innerHTML = '<div class="pv-empty"><div class="pv-ei">📝</div><div>Select a section from the changes list</div></div>'; return; }
+  if (a.type === 'replace') {
+    area.innerHTML = `<div class="spec-pv" style="flex-direction:row;gap:12px">
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0"><div class="spv-hdr">Original · ${escHtml(a.title||a.number)} (Page ${a.origPage})</div><div class="spv-body">${escHtml((a.origText||'').substring(0,8000))}</div></div>
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0"><div class="spv-hdr">Updated · ${escHtml(a.title||a.number)} (Page ${a.updatePage})</div><div class="spv-body">${escHtml((a.updateText||'').substring(0,8000))}</div></div>
+    </div>`;
+  } else {
+    area.innerHTML = `<div class="spec-pv"><div class="spv-hdr">New Section · ${escHtml(a.title||a.number)} (Page ${a.updatePage})</div><div class="spv-body" style="max-height:calc(100% - 40px)">${escHtml((a.updateText||'').substring(0,12000))}</div></div>`;
+  }
+}
+
+async function spcGeneratePDF() {
+  if (!Spc.actions.length) { toast('No changes to generate'); return; }
+  Spc.stage = 'export'; setStage('export');
+  prog('Loading specification PDFs…', 5);
+  try {
+    const [origP, updP] = await Promise.all([PDFDocument.load(await Spc.orig.file.arrayBuffer()), PDFDocument.load(await Spc.upd.file.arrayBuffer())]);
+    prog('Building page order…', 20); await sleep(60);
+    const newP = await PDFDocument.create(); const origN = origP.getPageCount();
+
+    // Map each original section to its start/end pages; build replacement lookup
+    const repByStartPage = new Map(); // origStartPage -> {action, endPage}
+    for (const a of Spc.actions) {
+      if (a.type === 'replace') {
+        // Find this section's end page in original
+        const origSec = Spc.orig.sections.find(s => s.number === a.number);
+        if (origSec) repByStartPage.set(origSec.startPage, { action: a, endPage: origSec.endPage });
+      }
+    }
+
+    const ins = Spc.actions.filter(a => a.type==='insert').sort((a,b) => (a.newPos||a.newIdx)-(b.newPos||b.newIdx));
+    let insI = 0, newPg = 0;
+
+    // Walk original page by page, replacing or inserting section pages
+    const processedOrigPages = new Set();
+    const sectionsToInsert = [...ins];
+
+    for (let i = 0; i < origN; i++) {
+      const origPgNum = i + 1;
+
+      // Check if this page starts a section that needs replacing
+      if (repByStartPage.has(origPgNum)) {
+        const { action, endPage } = repByStartPage.get(origPgNum);
+
+        // Check for inserts before this section position
+        const secOrigIdx = Spc.orig.sections.findIndex(s => s.number === action.number);
+        while (insI < sectionsToInsert.length && sectionsToInsert[insI].newPos <= secOrigIdx + 1) {
+          const sa = sectionsToInsert[insI];
+          const updSec = Spc.upd.sections.find(s => s.number === sa.number);
+          if (updSec) {
+            for (let p = updSec.startPage - 1; p < updSec.endPage; p++) {
+              if (p >= updP.getPageCount()) break;
+              const [cp] = await newP.copyPages(updP, [p]); newP.addPage(cp); newPg++;
+            }
+          }
+          insI++;
+        }
+
+        // Copy the replacement section from update
+        const updSec = Spc.upd.sections.find(s => s.number === action.number);
+        if (updSec) {
+          for (let p = updSec.startPage - 1; p < updSec.endPage; p++) {
+            if (p >= updP.getPageCount()) break;
+            const [cp] = await newP.copyPages(updP, [p]); newP.addPage(cp); newPg++;
+          }
+        }
+
+        // Mark all pages of this section as processed (to skip them)
+        for (let p = origPgNum - 1; p < endPage; p++) processedOrigPages.add(p);
+        // Advance i past this section
+        i = endPage - 1;
+        continue;
+      }
+
+      // Check for remaining inserts
+      // while (insI < sectionsToInsert.length && sectionsToInsert[insI].newPos <= newPg + 1) { ... }
+
+      // This page is not being replaced — copy from original
+      if (!processedOrigPages.has(i)) {
+        const [cp] = await newP.copyPages(origP, [i]); newP.addPage(cp); newPg++;
+      }
+    }
+
+    // Remaining inserts at the end
+    while (insI < sectionsToInsert.length) {
+      const sa = sectionsToInsert[insI];
+      const updSec = Spc.upd.sections.find(s => s.number === sa.number);
+      if (updSec) {
+        for (let p = updSec.startPage - 1; p < updSec.endPage; p++) {
+          if (p >= updP.getPageCount()) break;
+          const [cp] = await newP.copyPages(updP, [p]); newP.addPage(cp); newPg++;
+        }
+      }
+      insI++;
+    }
+
+    prog('Finalizing specification PDF…', 85); await sleep(60);
+    const bytes = await newP.save();
+    download(new Blob([bytes], { type: 'application/pdf' }), Spc.orig.fileName.replace(/\.pdf$/i, '') + '_Updated_Spec.pdf');
+    prog('Done!', 100); await sleep(300); progOff(); toast('Updated specification PDF generated ✓');
+    Spc.stage = 'review'; setStage('review');
+  } catch(e) { progOff(); toast('Error: ' + e.message); Spc.stage = 'review'; setStage('review'); console.error(e); }
+}
+
+function spcExport(fmt) {
+  const rc = Spc.actions.filter(a => a.type==='replace').length, ic = Spc.actions.filter(a => a.type==='insert').length;
+  const rows = [{ op:'—',label:'SUMMARY',action:'',up:'—',np:'—',notes:`${rc} replacements, ${ic} insertions · ${Spc.orig.sections.length} sections → ${Spc.orig.sections.length-rc+Spc.actions.length} sections` }, { op:'',label:'',action:'',up:'',np:'',notes:'' }];
+  for (const a of Spc.actions) rows.push({ op:a.type==='replace'?`§${a.origIdx+1}`:'—', label:a.number, action:a.type.toUpperCase(), up:`p.${a.updatePage}`, np:`§${a.newIdx||a.newPos||'—'}`, notes:'' });
+  if (fmt==='csv') { let csv='Original Section,Section Number,Action,Update Page,New Section,Notes\n'; csv+=rows.map(r=>`"${r.op}","${r.label}","${r.action}","${r.up}","${r.np}","${r.notes}"`).join('\n'); download(new Blob([csv],{type:'text/csv'}),'spec_slip_sheet.csv'); toast('CSV downloaded ✓'); }
+  else { const doc={generated:new Date().toISOString(),summary:{original:Spc.orig.fileName,update:Spc.upd.fileName,originalSections:Spc.orig.sections.length,updateSections:Spc.upd.sections.length,replacements:rc,insertions:ic},actions:Spc.actions.map(a=>({type:a.type,number:a.number,title:a.title,originalSection:a.type==='replace'?a.origIdx+1:null,updatePage:a.updatePage,newSection:a.newIdx||a.newPos}))}; download(new Blob([JSON.stringify(doc,null,2)],{type:'application/json'}),'spec_slip_sheet.json'); toast('JSON downloaded ✓'); }
+}
+
+window.resetSpec = function() {
+  Spc.orig = Spc.upd = null; Spc.sections = []; Spc.actions = []; Spc.selIdx = -1; Spc.stage = 'upload';
+  $id('spcUpload').classList.remove('hidden'); $id('spcReview').classList.remove('active');
+  $id('bottomBarSpc').classList.remove('active'); $id('resetBtnSpc').style.display = 'none';
+  $id('socard').classList.remove('ready'); $id('sucard').classList.remove('ready');
+  $id('sofi').value = ''; $id('sufi').value = '';
+  $id('spcPreviewArea').innerHTML = '<div class="pv-empty"><div class="pv-ei">📝</div><div>Select a section from the changes list</div></div>';
+  $id('spcChangesList').innerHTML = ''; $id('spcSectionsTree').innerHTML = '<h4>Section List</h4>'; $id('spcSearch').value = '';
+  setStage('upload'); spcReady();
+};
+
+// ═══════════════ Init ═══════════════
+setStage('upload');
+$id('drwAnalyzeBtn').addEventListener('click', drwRunAnalysis);
+$id('spcAnalyzeBtn').addEventListener('click', spcRunAnalysis);
+drwReady(); spcReady();
+
+// Keyboard nav
+document.addEventListener('keydown', e => {
+  const state = activeTab === 'drawings' ? Drw : Spc;
+  if (state.stage !== 'review') return;
+  if (e.key === 'ArrowDown' && state.selIdx < state.actions.length - 1) { e.preventDefault();
+    if (activeTab === 'drawings') drwSelect(state.selIdx + 1); else spcSelect(state.selIdx + 1); }
+  if (e.key === 'ArrowUp' && state.selIdx > 0) { e.preventDefault();
+    if (activeTab === 'drawings') drwSelect(state.selIdx - 1); else spcSelect(state.selIdx - 1); }
+});
+</script>
+</body>
+</html>
