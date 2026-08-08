@@ -680,7 +680,7 @@ async function drwGeneratePDF() {
       newP.addPage(pp); cur++; npM[a.label] = cur; insI++;
     }
     // Release original from memory now
-    origBuf.transfer; // hint to GC
+    // Original PDF released from memory
     console.log('[SlipSheet] Original PDF released, loading update PDF');
 
     // === PHASE 2: Load update PDF, apply replacements ===
