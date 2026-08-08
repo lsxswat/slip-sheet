@@ -424,32 +424,146 @@ function drwRenderChanges() {
   $id('drwChangesList').innerHTML = h || '<div style="padding:20px;text-align:center;color:var(--text-tertiary);font-size:11px">No sheets match your filter</div>';
 }
 
-window.drwSelect = function(idx) { Drw.selIdx = idx; drwRenderChanges(); drwRenderPreview(idx); $id('dcr'+idx)?.scrollIntoView({ block:'nearest', behavior:'smooth' }); };
+window.drwSelect = function(idx) { Drw.selIdx = idx; drwRenderChanges(); drwRenderPreview(idx); $id('dcr'+idx)?.scrollIntoView({ block:'nearest', behavior:'smooth' }); setTimeout(()=>drwDoOverlay(idx),300); };
 window.drwSetPos = function(idx, v) { const n = parseInt(v); if (isNaN(n)||n<1) return; Drw.actions[idx].newPos = n; Drw.actions[idx].newPage = n; toast('Insert position updated'); };
 
 async function drwRenderPreview(idx) {
   const a = Drw.actions[idx], area = $id('drwPreviewArea');
   $id('drwPvTitle').textContent = a ? `Sheet ${a.label}` : 'Select a sheet to preview';
   if (!a) { area.innerHTML = '<div class="pv-empty"><div class="pv-ei">☝️</div><div>Select a sheet to preview</div></div>'; return; }
-  area.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-tertiary);font-size:12px">Loading preview…</div>';
-  try {
-    if (a.type === 'replace') {
-      if (!Drw.jsDocs.orig) Drw.jsDocs.orig = await pdfjsLib.getDocument({ data: await Drw.orig.file.arrayBuffer() }).promise;
-      if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await Drw.upd.file.arrayBuffer() }).promise;
-      const [op, up] = await Promise.all([Drw.jsDocs.orig.getPage(a.origPage), Drw.jsDocs.upd.getPage(a.updatePage)]);
-      const [oc, uc] = await Promise.all([drwRenderPage(op), drwRenderPage(up)]);
-      area.innerHTML = `<div class="pv-slot"><span class="pv-lbl">Original · Page ${a.origPage}</span>${oc?'<canvas></canvas>':'<div style="padding:14px;color:var(--text-tertiary);font-size:10px">Preview unavailable</div>'}</div><div class="pv-slot"><span class="pv-lbl">Updated · Page ${a.updatePage}</span>${uc?'<canvas></canvas>':'<div style="padding:14px;color:var(--text-tertiary);font-size:10px">Preview unavailable</div>'}</div>`;
-      drwCopyCv(area.querySelector('.pv-slot:first-child canvas'), oc);
-      drwCopyCv(area.querySelector('.pv-slot:last-child canvas'), uc);
-    } else {
+  
+  if (a.type !== 'replace') {
+    // Insert: just show the new sheet
+    area.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-tertiary);font-size:18px">Loading preview…</div>';
+    try {
       if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await Drw.upd.file.arrayBuffer() }).promise;
       const uc = await drwRenderPage(await Drw.jsDocs.upd.getPage(a.updatePage));
-      area.innerHTML = `<div class="pv-slot" style="max-width:60%"><span class="pv-lbl">New Sheet · ${escHtml(a.label)}</span>${uc?'<canvas></canvas>':'<div style="padding:14px;color:var(--text-tertiary);font-size:10px">Preview unavailable</div>'}</div>`;
+      area.innerHTML = `<div class="pv-slot" style="max-width:60%"><span class="pv-lbl">New Sheet · ${escHtml(a.label)}</span>${uc?'<canvas></canvas>':'<div style="padding:21px;color:var(--text-tertiary);font-size:15px">Preview unavailable</div>'}</div>`;
       drwCopyCv(area.querySelector('canvas'), uc);
-    }
-  } catch(e) { area.innerHTML = `<div class="pv-empty"><div>⚠️ Preview error</div><div style="font-size:10px">${escHtml(e.message)}</div></div>`; }
+    } catch(e) { area.innerHTML = `<div class="pv-empty"><div>⚠️ Preview error</div><div style="font-size:15px">${escHtml(e.message)}</div></div>`; }
+    return;
+  }
+
+  // Replace: show overlay mode with toggle
+  area.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;height:100%;gap:12px;padding:18px">
+    <div style="display:flex;gap:9px;align-items:center">
+      <span class="pv-lbl">Original · Page ${a.origPage}</span>
+      <button class="btn btn-sec" id="drwOverlayBtn" onclick="drwDoOverlay(${idx})" style="font-size:14px;padding:6px 14px">🔍 Compare (Overlay)</button>
+      <button class="btn btn-ghost" id="drwSideBtn" onclick="drwSideBySide(${idx})" style="font-size:14px;padding:6px 14px">📋 Side by Side</button>
+      <span class="pv-lbl">Updated · Page ${a.updatePage}</span>
+    </div>
+    <div id="drwCmpArea" style="flex:1;display:flex;gap:2px;overflow:auto;align-items:flex-start;justify-content:center;width:100%">
+      <div class="pv-empty"><div class="pv-ei">👆</div><div>Click 'Compare (Overlay)' or 'Side by Side' to view</div></div>
+    </div>
+  </div>`;
+  
+  // Make overlay button the default - auto-click on first view
+  window._drwLastPreviewIdx = idx;
 }
-async function drwRenderPage(page) { const vp = page.getViewport({scale:.45}); const c = document.createElement('canvas'); c.width=vp.width; c.height=vp.height; try { await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise; return c; } catch(e) { return null; } }
+
+window.drwSideBySide = async function(idx) {
+  const a = Drw.actions[idx], cmpArea = $id('drwCmpArea');
+  cmpArea.innerHTML = '<div style="color:var(--text-tertiary);font-size:15px;padding:30px">Loading side-by-side…</div>';
+  try {
+    if (!Drw.jsDocs.orig) Drw.jsDocs.orig = await pdfjsLib.getDocument({ data: await Drw.orig.file.arrayBuffer() }).promise;
+    if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await Drw.upd.file.arrayBuffer() }).promise;
+    const [op, up] = await Promise.all([Drw.jsDocs.orig.getPage(a.origPage), Drw.jsDocs.upd.getPage(a.updatePage)]);
+    const [oc, uc] = await Promise.all([drwRenderPage(op), drwRenderPage(up)]);
+    cmpArea.innerHTML = `<div class="pv-slot"><span class="pv-lbl">Original · Page ${a.origPage}</span></div><div class="pv-slot"><span class="pv-lbl">Updated · Page ${a.updatePage}</span></div>`;
+    cmpArea.querySelector('.pv-slot:first-child').appendChild(oc || document.createTextNode('Preview unavailable'));
+    cmpArea.querySelector('.pv-slot:last-child').appendChild(uc || document.createTextNode('Preview unavailable'));
+  } catch(e) { cmpArea.innerHTML = `<div class="pv-empty"><div>⚠️ Error</div><div style="font-size:15px">${escHtml(e.message)}</div></div>`; }
+};
+
+window.drwDoOverlay = async function(idx) {
+  const a = Drw.actions[idx], cmpArea = $id('drwCmpArea');
+  cmpArea.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:30px">
+    <div style="color:var(--text);font-weight:600;font-size:16px">Comparing pages…</div>
+    <div class="prog-track" style="width:200px;height:6px"><div class="prog-fill" id="diffProg" style="width:0%;display:block"></div></div>
+    <div style="color:var(--text-tertiary);font-size:14px" id="diffStatus">Rendering…</div>
+  </div>`;
+  await sleep(60);
+
+  try {
+    if (!Drw.jsDocs.orig) Drw.jsDocs.orig = await pdfjsLib.getDocument({ data: await Drw.orig.file.arrayBuffer() }).promise;
+    if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await Drw.upd.file.arrayBuffer() }).promise;
+    const [op, up] = await Promise.all([Drw.jsDocs.orig.getPage(a.origPage), Drw.jsDocs.upd.getPage(a.updatePage)]);
+
+    // Render both at same scale (fit to container)
+    const scale = 0.6;
+    const [oc, uc] = await Promise.all([drwRenderPage(op, scale), drwRenderPage(up, scale)]);
+    if (!oc || !uc) { cmpArea.innerHTML = '<div class="pv-empty"><div>⚠️ Could not render pages for comparison</div></div>'; return; }
+
+    // Align canvases to same size
+    const w = Math.max(oc.width, uc.width), h = Math.max(oc.height, uc.height);
+    const bigC = document.createElement('canvas'); bigC.width = w; bigC.height = h;
+    const bctx = bigC.getContext('2d');
+    bctx.drawImage(oc, 0, 0);
+    const origData = bctx.getImageData(0, 0, w, h);
+    bctx.clearRect(0, 0, w, h);
+    bctx.drawImage(uc, 0, 0);
+    const updData = bctx.getImageData(0, 0, w, h);
+
+    // Create output canvas
+    const out = document.createElement('canvas'); out.width = w; out.height = h;
+    const octx = out.getContext('2d');
+    const outData = octx.createImageData(w, h);
+
+    const threshold = 40;
+    let diffCount = 0;
+    const totalPixels = w * h;
+
+    $id('diffStatus').textContent = 'Comparing pixels…';
+    await sleep(40);
+
+    for (let i = 0; i < totalPixels; i++) {
+      const pi = i * 4;
+      const dr = Math.abs(origData.data[pi] - updData.data[pi]);
+      const dg = Math.abs(origData.data[pi+1] - updData.data[pi+1]);
+      const db = Math.abs(origData.data[pi+2] - updData.data[pi+2]);
+      const diff = dr + dg + db;
+
+      if (i % 50000 === 0 && i > 0) {
+        $id('diffProg').style.width = Math.floor(i / totalPixels * 80) + '%';
+        $id('diffStatus').textContent = `Comparing pixels… ${Math.floor(i/totalPixels*100)}%`;
+        await sleep(0);
+      }
+
+      if (diff > threshold) {
+        diffCount++;
+        const r = Math.min(255, origData.data[pi]); 
+        const g = Math.min(255, origData.data[pi+1] * 0.3 + updData.data[pi+1] * 0.3);
+        const b = Math.min(255, origData.data[pi+2] * 0.3 + updData.data[pi+2] * 0.3);
+        outData.data[pi] = 255;
+        outData.data[pi+1] = 80;
+        outData.data[pi+2] = 80;
+        outData.data[pi+3] = 180;
+      } else {
+        const oAlpha = origData.data[pi+3] / 255, uAlpha = updData.data[pi+3] / 255;
+        outData.data[pi] = Math.round(origData.data[pi] * 0.5 * oAlpha + updData.data[pi] * 0.5 * uAlpha);
+        outData.data[pi+1] = Math.round(origData.data[pi+1] * 0.5 * oAlpha + updData.data[pi+1] * 0.5 * uAlpha);
+        outData.data[pi+2] = Math.round(origData.data[pi+2] * 0.5 * oAlpha + updData.data[pi+2] * 0.5 * uAlpha);
+        outData.data[pi+3] = 255;
+      }
+    }
+
+    octx.putImageData(outData, 0, 0);
+
+    $id('diffProg').style.width = '100%';
+    const pct = (diffCount / totalPixels * 100).toFixed(1);
+    $id('diffStatus').textContent = `Done! ${diffCount} different pixels (${pct}%)`;
+
+    cmpArea.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:9px;width:100%;overflow:auto">
+      <div style="display:flex;gap:18px;align-items:center">
+        <span style="display:flex;align-items:center;gap:5px;font-size:14px"><span style="width:12px;height:12px;border-radius:3px;background:#ff5050;display:inline-block"></span> Changed areas (${pct}%)</span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:14px;color:var(--text-tertiary)"><span style="width:12px;height:12px;border-radius:3px;background:#999;display:inline-block"></span> Unchanged</span>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;box-shadow:var(--shadow-lg)"></div>
+    </div>`;
+    cmpArea.querySelector('div:last-child > div:last-child').appendChild(out);
+  } catch(e) { cmpArea.innerHTML = `<div class="pv-empty"><div>⚠️ Comparison error</div><div style="font-size:15px">${escHtml(e.message)}</div></div>`; }
+};
+async function drwRenderPage(page, scale=.45) { const vp = page.getViewport({scale}); const c = document.createElement('canvas'); c.width=vp.width; c.height=vp.height; try { await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise; return c; } catch(e) { return null; } }
 function drwCopyCv(el, src) { if (!el||!src) return; el.width=src.width; el.height=src.height; el.getContext('2d').drawImage(src,0,0); }
 
 async function drwGeneratePDF() {
@@ -473,6 +587,7 @@ async function drwGeneratePDF() {
     const ins = Drw.actions.filter(a => a.type==='insert').sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
     let insI=0, cur=0; const npM={};
     for (let i=0; i<origN; i++) {
+      if (i % 20 === 0) prog('Building page order…', 25 + Math.floor(cur / (origN + ins.length) * 55));
       while (insI<ins.length && ins[insI].newPos <= cur+1) { const a=ins[insI]; const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); cur++; npM[a.label]=cur; insI++; }
       if (repMap.has(i)) { const a=repMap.get(i); const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); cur++; npM[a.label]=cur; }
       else { const [cp]=await newP.copyPages(origP,[i]); newP.addPage(cp); cur++; }
