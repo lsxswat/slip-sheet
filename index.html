@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Slip Sheet — Drawing &amp; Specification Manager</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <style>
 :root {
   --bg:#fbfbfa; --surface:#fff; --surface-hover:#f5f4f1; --surface-active:#eeedea;
@@ -455,9 +458,10 @@ async function drwGeneratePDF() {
   _lastBlob=null; _lastName='';
   prog('Loading PDFs…', 5); await sleep(100);
   try {
+    const [obuf, ubuf] = await Promise.all([Drw.orig.file.arrayBuffer(), Drw.upd.file.arrayBuffer()]);
     const [origP, updP] = await Promise.all([
-      PDFDocument.load(await Drw.orig.file.arrayBuffer()),
-      PDFDocument.load(await Drw.upd.file.arrayBuffer())
+      PDFDocument.load(obuf.slice(0)),
+      PDFDocument.load(ubuf.slice(0))
     ]);
     prog('Building page order…', 20); await sleep(100);
     const newP = await PDFDocument.create(); const origN = origP.getPageCount();
@@ -696,7 +700,8 @@ async function spcGeneratePDF() {
   _lastBlob=null; _lastName='';
   prog('Loading specification PDFs…', 5);
   try {
-    const [origP, updP] = await Promise.all([PDFDocument.load(await Spc.orig.file.arrayBuffer()), PDFDocument.load(await Spc.upd.file.arrayBuffer())]);
+    const [obuf, ubuf] = await Promise.all([Spc.orig.file.arrayBuffer(), Spc.upd.file.arrayBuffer()]);
+    const [origP, updP] = await Promise.all([PDFDocument.load(obuf.slice(0)), PDFDocument.load(ubuf.slice(0))]);
     prog('Building page order…', 20); await sleep(100);
     const newP = await PDFDocument.create(); const origN = origP.getPageCount();
 
