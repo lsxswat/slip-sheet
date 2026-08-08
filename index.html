@@ -264,6 +264,18 @@ import * as pdfjsLib from 'pdfjs-dist/build/pdf.min.mjs';
 import { PDFDocument } from 'pdf-lib';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/build/pdf.worker.min.mjs';
 
+function safeLoadPDF(buf, label) {
+  try {
+    return PDFDocument.load(buf);
+  } catch(e) {
+    if (e.message && e.message.includes('Relocation')) {
+      throw new Error(label + ': This PDF has an unsupported internal structure. Try re-saving it in Adobe Acrobat (File → Save As → Optimized PDF) to flatten the cross-reference table.');
+    }
+    throw e;
+  }
+}
+
+
 // ── Shared Utils ──
 const $id = id => document.getElementById(id);
 function toast(msg, dur) { const t = $id('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), dur||3300); }
@@ -528,7 +540,7 @@ window.drwDoOverlay = async function(idx) {
     octx.drawImage(gsCanvas, 0, 0);
     
     // Now find and highlight differences
-    const threshold = 50;
+    const threshold = 80;
     let diffCount = 0;
     const totalPixels = w * h;
     const diffMask = new Uint8Array(totalPixels); // 1 = diff, 0 = same
@@ -583,7 +595,7 @@ window.drwDoOverlay = async function(idx) {
             }
           }
           // MIN_CLUSTER: only keep clusters with 20+ changed pixels
-          if (clusterPixels.length < 20) {
+          if (clusterPixels.length < 50) {
             for (const [px, py] of clusterPixels) diffMask[py * w + px] = 0;
           }
         }
@@ -644,8 +656,8 @@ async function drwGeneratePDF() {
     console.log('[SlipSheet] Buffers loaded, sizes:', obuf.byteLength, ubuf.byteLength);
     console.log('[SlipSheet] Loading PDFs with pdf-lib…');
     const [origP, updP] = await Promise.all([
-      PDFDocument.load(obuf.slice(0)),
-      PDFDocument.load(ubuf.slice(0))
+      safeLoadPDF(obuf.slice(0),'Original PDF'),
+      safeLoadPDF(ubuf.slice(0),'Update PDF')
     ]);
     console.log('[SlipSheet] PDFs loaded successfully');
     prog('Building page order…', 20); await sleep(100);
@@ -896,7 +908,7 @@ async function spcGeneratePDF() {
     URL.revokeObjectURL(u1); URL.revokeObjectURL(u2);
     console.log('[SlipSheet] Spec buffers loaded, sizes:', obuf.byteLength, ubuf.byteLength);
     console.log('[SlipSheet] Loading spec PDFs with pdf-lib…');
-    const [origP, updP] = await Promise.all([PDFDocument.load(obuf.slice(0)), PDFDocument.load(ubuf.slice(0))]);
+    const [origP, updP] = await Promise.all([safeLoadPDF(obuf.slice(0),'Original Spec'), safeLoadPDF(ubuf.slice(0),'Updated Spec')]);
     console.log('[SlipSheet] Spec PDFs loaded successfully');
     prog('Building page order…', 20); await sleep(100);
     const newP = await PDFDocument.create(); const origN = origP.getPageCount();
