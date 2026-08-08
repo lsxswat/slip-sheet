@@ -304,7 +304,7 @@ async function drwParsePDF(file) {
   const labels = new Map(); let hasLabels = false;
   const rawLabels = await doc.getPageLabels();
   if (rawLabels && rawLabels.length === n) {
-    for (let i = 0; i < n; i++) { const lbl = rawLabels[i] || String(i + 1); labels.set(lbl, { pageNum: i + 1 }); if (lbl !== String(i + 1)) hasLabels = true; }
+    for (let i = 0; i < n; i++) { const raw = rawLabels[i] || String(i + 1); const lbl = raw.split(' ')[0]; labels.set(lbl, { pageNum: i + 1 }); if (lbl !== String(i + 1)) hasLabels = true; }
   } else {
     for (let i = 1; i <= n; i++) labels.set(String(i), { pageNum: i });
   }
