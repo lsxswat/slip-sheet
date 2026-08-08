@@ -456,8 +456,8 @@ async function drwGeneratePDF() {
   prog('Loading PDFs…', 5); await sleep(100);
   try {
     const [origP, updP] = await Promise.all([
-      PDFDocument.load(Drw.orig.arrayBuffer || await Drw.orig.file.arrayBuffer()),
-      PDFDocument.load(Drw.upd.arrayBuffer || await Drw.upd.file.arrayBuffer())
+      PDFDocument.load(await Drw.orig.file.arrayBuffer()),
+      PDFDocument.load(await Drw.upd.file.arrayBuffer())
     ]);
     prog('Building page order…', 20); await sleep(100);
     const newP = await PDFDocument.create(); const origN = origP.getPageCount();
