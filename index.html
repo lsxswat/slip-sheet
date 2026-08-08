@@ -577,7 +577,7 @@ async function drwRunAnalysis() {
   }
   const reps = actions.filter(a => a.type==='replace'), inss = actions.filter(a => a.type==='insert');
   reps.forEach((a,i) => a.newPage = i + 1);
-  inss.forEach((a,i) => { a.newPage = reps.length + i + 1; a.newPos = a.newPage; });
+  inss.forEach((a,i) => { a.newPos = origOrder.length + i + 1; a.newPage = a.newPos; });
   Drw.actions = [...reps, ...inss];
   Drw.stage = 'review'; setStage('review');
   drwShowReview(); progOff();
@@ -941,7 +941,7 @@ async function drwGeneratePDF() {
       const a = replSorted[ri]; repCount++;
       if (repCount % 10 === 0) { prog(`Step 3/3: Replacing ${repCount}/${repTotal}`, 42 + Math.floor(repCount/repTotal*25)); await sleep(0); }
       try {
-        const targetIdx = a.newPage - 1;
+        const targetIdx = (npM[a.label] || a.newPage) - 1;
         newP.removePage(targetIdx);
         if (a.updatePage - 1 < updP.getPageCount()) {
           const [cp] = await newP.copyPages(updP, [a.updatePage - 1]);
@@ -955,7 +955,7 @@ async function drwGeneratePDF() {
       const a = allIns[ii];
       if (ii % 10 === 0) { prog(`Step 3/3: Inserting ${ii+1}/${allIns.length}`, 70 + Math.floor(ii/allIns.length*20)); await sleep(0); }
       try {
-        const targetIdx = (a.newPos || a.newPage) - 1;
+        const targetIdx = (npM[a.label] || a.newPos || a.newPage) - 1;
         newP.removePage(targetIdx);
         if (a.updatePage - 1 < updP.getPageCount()) {
           const [cp] = await newP.copyPages(updP, [a.updatePage - 1]);
@@ -1303,7 +1303,7 @@ async function spcRunAnalysis() {
 
   const reps = actions.filter(a => a.type==='replace'), inss = actions.filter(a => a.type==='insert');
   reps.forEach((a,i) => a.newIdx = i + 1);
-  inss.forEach((a,i) => { a.newIdx = reps.length + i + 1; a.newPos = a.newIdx; });
+  inss.forEach((a,i) => { a.newPos = origSecs.length + i + 1; a.newIdx = a.newPos; });
   Spc.actions = [...reps, ...inss];
   Spc.stage = 'review'; setStage('review');
   spcShowReview(); progOff();
