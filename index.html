@@ -505,10 +505,12 @@ window.drwDoOverlay = async function(idx) {
     const [op, up] = await Promise.all([Drw.jsDocs.orig.getPage(a.origPage), Drw.jsDocs.upd.getPage(a.updatePage)]);
 
     // Render both at same scale (fit to container)
+    $id('diffProg').style.width = '15%'; $id('diffStatus').textContent = 'Rendering pages…'; await sleep(60);
     const scale = 0.6;
     const [oc, uc] = await Promise.all([drwRenderPage(op, scale), drwRenderPage(up, scale)]);
     if (!oc || !uc) { cmpArea.innerHTML = '<div class="pv-empty"><div>⚠️ Could not render pages for comparison</div></div>'; return; }
 
+    $id('diffProg').style.width = '20%'; $id('diffStatus').textContent = 'Aligning pages…'; await sleep(60);
     // Align canvases to same size
     const w = Math.max(oc.width, uc.width), h = Math.max(oc.height, uc.height);
     const bigC = document.createElement('canvas'); bigC.width = w; bigC.height = h;
@@ -556,7 +558,7 @@ window.drwDoOverlay = async function(idx) {
       const diff = dr + dg + db;
 
       if (i % 50000 === 0 && i > 0) {
-        $id('diffProg').style.width = Math.floor(i / totalPixels * 80) + '%';
+        $id('diffProg').style.width = 20 + Math.floor(i / totalPixels * 65) + '%';
         $id('diffStatus').textContent = `Comparing pixels… ${Math.floor(i/totalPixels*100)}%`;
         await sleep(0);
       }
