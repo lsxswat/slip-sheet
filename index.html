@@ -659,14 +659,14 @@ async function drwGeneratePDF() {
     const newP = await PDFDocument.create(); const origN = origP.getPageCount();
     const repMap = new Map(); Drw.actions.filter(a => a.type==='replace').forEach(a => repMap.set(a.origPage-1, a));
     const ins = Drw.actions.filter(a => a.type==='insert').sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
-    let insI=0, cur=0; const npM={};
+    let insI=0, cur=0; const npM={}, totalOps = origN + ins.length;
     for (let i=0; i<origN; i++) {
-      if (i % 20 === 0) prog('Building page order…', 25 + Math.floor(cur / (origN + ins.length) * 55));
-      while (insI<ins.length && ins[insI].newPos <= cur+1) { const a=ins[insI]; const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); cur++; npM[a.label]=cur; insI++; }
-      if (repMap.has(i)) { const a=repMap.get(i); const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); cur++; npM[a.label]=cur; }
-      else { const [cp]=await newP.copyPages(origP,[i]); newP.addPage(cp); cur++; }
+      if (i % 5 === 0) { prog(`Building page ${cur+1}/${totalOps}…`, 25 + Math.floor(cur / totalOps * 55)); await sleep(0); }
+      while (insI<ins.length && ins[insI].newPos <= cur+1) { const a=ins[insI]; try { const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); } catch(pe){ throw new Error(`Failed inserting page ${a.label}: `+pe.message); } cur++; npM[a.label]=cur; insI++; }
+      if (repMap.has(i)) { const a=repMap.get(i); try { const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); } catch(pe){ throw new Error(`Failed replacing page ${a.label} (orig p.${i+1}, upd p.${a.updatePage}): `+pe.message); } cur++; npM[a.label]=cur; }
+      else { try { const [cp]=await newP.copyPages(origP,[i]); newP.addPage(cp); } catch(pe){ throw new Error(`Failed copying page ${i+1}: `+pe.message); } cur++; }
     }
-    while (insI<ins.length) { const a=ins[insI]; const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); cur++; npM[a.label]=cur; insI++; }
+    while (insI<ins.length) { const a=ins[insI]; try { const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); } catch(pe){ throw new Error(`Failed inserting page ${a.label}: `+pe.message); } cur++; npM[a.label]=cur; insI++; }
     prog('Finalizing PDF…', 85); await sleep(100);
     const bytes = await newP.save(); _lastName = Drw.orig.fileName.replace(/\.pdf$/i,'')+'_Updated.pdf'; _lastBlob = new Blob([bytes],{type:'application/pdf'}); download(_lastBlob, _lastName);
     prog('Done!',100); await sleep(500); progOff();
