@@ -992,7 +992,7 @@ async function drwGenerateByteLevel(origSize, updSize) {
     
     prog('Byte-level: Parsing PDF structure…', 25);
     await sleep(50);
-    const pdfData = parsePDFByteSections(origRawBuf);
+    let pdfData = parsePDFByteSections(origRawBuf);
     const origPages = findPageObjects(pdfData);
     console.log('[SlipSheet] Byte-level: found',origPages.length,'pages via byte scan');
     
@@ -1025,7 +1025,7 @@ async function drwGenerateByteLevel(origSize, updSize) {
       prog('Byte-level: Reading update PDF…', 35);
       let updRawBuf = await Drw.upd.file.arrayBuffer();
       console.log('[SlipSheet] Byte-level: update size',(updRawBuf.byteLength/1024/1024).toFixed(1),'MB');
-      updData = parsePDFByteSections(updRawBuf);
+      let updData = parsePDFByteSections(updRawBuf);
       updPages = findPageObjects(updData);
     }
 
