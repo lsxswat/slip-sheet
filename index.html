@@ -161,6 +161,8 @@ main{flex:1;display:flex;overflow:hidden;position:relative}
 .prog-overlay .stxt{font-size:20px;font-weight:600;color:var(--text);letter-spacing:-.01em}
 .prog-track{width:66vw;min-width:300px;max-width:800px;height:5px;background:var(--border);border-radius:3px;overflow:hidden}
 .prog-fill{height:100%;background:var(--accent);border-radius:3px;transition:width 300ms ease;width:0%}
+.prog-track.secondary{height:3px;margin-top:6px;width:50vw;min-width:200px;max-width:600px}
+.prog-fill.secondary{background:var(--text-tertiary);transition:width 150ms ease}
 
 /* Toast */
 .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);padding:10px 24px;border-radius:100px;font-size:17px;font-weight:600;background:var(--accent);color:#fff;box-shadow:var(--shadow-lg);opacity:0;transition:opacity var(--ease);pointer-events:none;z-index:30}
@@ -249,6 +251,7 @@ main{flex:1;display:flex;overflow:hidden;position:relative}
   <div class="prog-overlay" id="progOverlay">
     <div class="stxt" id="progText">Processing…</div>
     <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
+    <div class="prog-track secondary" id="progTrack2" style="display:none"><div class="prog-fill secondary" id="progFill2"></div></div>
   </div>
 </main>
 
@@ -280,7 +283,8 @@ function safeLoadPDF(buf, label) {
 const $id = id => document.getElementById(id);
 function toast(msg, dur) { const t = $id('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), dur||3300); }
 function prog(msg, pct) { $id('progText').textContent = msg; $id('progFill').style.width = pct + '%'; $id('progOverlay').classList.add('active'); }
-function progOff() { $id('progOverlay').classList.remove('active'); }
+function prog2(msg, pct) { if(pct!==undefined){ $id('progTrack2').style.display=''; $id('progFill2').style.width = pct+'%'; } else { $id('progTrack2').style.display='none'; } if(msg) $id('progText').textContent = msg; }
+function progOff() { $id('progOverlay').classList.remove('active'); $id('progTrack2').style.display='none'; }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function download(blob, name) { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = name; a.style.display='none'; document.body.appendChild(a); a.click(); setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(u);},200); }
@@ -487,6 +491,16 @@ window.drwSideBySide = async function(idx) {
     cmpArea.innerHTML = `<div class="pv-slot"><span class="pv-lbl">Original · Page ${a.origPage}</span></div><div class="pv-slot"><span class="pv-lbl">Updated · Page ${a.updatePage}</span></div>`;
     cmpArea.querySelector('.pv-slot:first-child').appendChild(oc || document.createTextNode('Preview unavailable'));
     cmpArea.querySelector('.pv-slot:last-child').appendChild(uc || document.createTextNode('Preview unavailable'));
+    
+    // Zoom support for side-by-side
+    const sbsContainers = cmpArea.querySelectorAll('.pv-slot');
+    let sbsZoom = 1;
+    function updateSbsZoom() { sbsContainers.forEach(c => { c.style.transform = `scale(${sbsZoom})`; c.style.transformOrigin = 'top center'; c.style.transition = 'transform 150ms ease'; }); }
+    cmpArea.addEventListener('wheel', (ev) => {
+      ev.preventDefault();
+      sbsZoom = Math.max(0.2, Math.min(5, sbsZoom + (ev.deltaY > 0 ? -0.15 : 0.15)));
+      updateSbsZoom();
+    }, {passive: false});
   } catch(e) { cmpArea.innerHTML = `<div class="pv-empty"><div>⚠️ Error</div><div style="font-size:15px">${escHtml(e.message)}</div></div>`; }
 };
 
@@ -636,6 +650,29 @@ window.drwDoOverlay = async function(idx) {
       <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;box-shadow:var(--shadow-lg)"></div>
     </div>`;
     cmpArea.querySelector('div:last-child > div:last-child').appendChild(out);
+    
+    // Zoom support
+    let zoomLevel = 1;
+    const zoomContainer = cmpArea.querySelector('div:last-child > div:last-child');
+    zoomContainer.style.transformOrigin = 'top center';
+    zoomContainer.style.transition = 'transform 150ms ease';
+    
+    function updateZoom() { zoomContainer.style.transform = `scale(${zoomLevel})`; }
+    zoomContainer.parentElement.addEventListener('wheel', (ev) => {
+      ev.preventDefault();
+      const delta = ev.deltaY > 0 ? -0.15 : 0.15;
+      zoomLevel = Math.max(0.2, Math.min(5, zoomLevel + delta));
+      updateZoom();
+    }, {passive: false});
+    
+    // Zoom indicator
+    const zi = document.createElement('div');
+    zi.style.cssText = 'position:absolute;top:8px;right:8px;background:rgba(0,0,0,.7);color:#fff;padding:3px 8px;border-radius:4px;font-size:12px;z-index:5;pointer-events:none';
+    zi.textContent = Math.round(zoomLevel*100)+'%';
+    zoomContainer.style.position = 'relative';
+    zoomContainer.appendChild(zi);
+    const origUpdateZoom = updateZoom;
+    updateZoom = function() { origUpdateZoom(); zi.textContent = Math.round(zoomLevel*100)+'%'; };
   } catch(e) { cmpArea.innerHTML = `<div class="pv-empty"><div>⚠️ Comparison error</div><div style="font-size:15px">${escHtml(e.message)}</div></div>`; }
 };
 async function drwRenderPage(page, scale=.45) { const vp = page.getViewport({scale}); const c = document.createElement('canvas'); c.width=vp.width; c.height=vp.height; try { await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise; return c; } catch(e) { return null; } }
@@ -665,7 +702,7 @@ async function drwGeneratePDF() {
     const ins = [...insertions].sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
     let insI = 0;
     for (let i = 0; i < origN; i++) {
-      prog(`Step 2/3: Skeleton page ${cur+1}/${totalOps}`, 8 + Math.floor(cur / totalOps * 28));
+      prog(`Step 2/3: Skeleton page ${cur+1}/${totalOps}`,8 + Math.floor(cur / totalOps * 28)); prog2('',  8 + Math.floor(cur / totalOps * 28));
       if (i % 2 === 0) await sleep(0);
       while (insI < ins.length && ins[insI].newPos <= cur + 1) {
         const a = ins[insI]; const [pp] = await newP.copyPages(origP, [0]);
