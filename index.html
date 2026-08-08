@@ -644,41 +644,93 @@ async function drwGeneratePDF() {
   Drw.stage = 'export'; setStage('export');
   _lastBlob=null; _lastName='';
   $id('drwErrorBanner').style.display='none';
-  prog('Loading PDFs…', 5); await sleep(100);
+  prog('Step 1/3: Loading original PDF…', 5); await sleep(100);
   try {
-    console.log('[SlipSheet] Loading file buffers…', Drw.orig.fileName, Drw.upd.fileName);
-    const u1 = URL.createObjectURL(Drw.orig.file), u2 = URL.createObjectURL(Drw.upd.file);
-    const [obuf, ubuf] = await Promise.all([
-      fetch(u1).then(r => r.arrayBuffer()),
-      fetch(u2).then(r => r.arrayBuffer())
-    ]);
-    URL.revokeObjectURL(u1); URL.revokeObjectURL(u2);
-    console.log('[SlipSheet] Buffers loaded, sizes:', obuf.byteLength, ubuf.byteLength);
-    console.log('[SlipSheet] Loading PDFs with pdf-lib…');
-    const [origP, updP] = await Promise.all([
-      safeLoadPDF(obuf.slice(0),'Original PDF'),
-      safeLoadPDF(ubuf.slice(0),'Update PDF')
-    ]);
-    console.log('[SlipSheet] PDFs loaded successfully');
-    prog('Building page order…', 20); await sleep(100);
-    const newP = await PDFDocument.create(); const origN = origP.getPageCount();
-    const repMap = new Map(); Drw.actions.filter(a => a.type==='replace').forEach(a => repMap.set(a.origPage-1, a));
-    const ins = Drw.actions.filter(a => a.type==='insert').sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
-    let insI=0, cur=0; const npM={}, totalOps = origN + ins.length;
-    for (let i=0; i<origN; i++) {
-      prog(`Building page ${cur+1}/${totalOps}…`, 25 + Math.floor(cur / totalOps * 55)); await sleep(0);
-      while (insI<ins.length && ins[insI].newPos <= cur+1) { const a=ins[insI]; try { const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); } catch(pe){ throw new Error(`Failed inserting page ${a.label}: `+pe.message); } cur++; npM[a.label]=cur; insI++; }
-      if (repMap.has(i)) { const a=repMap.get(i); try { const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); } catch(pe){ throw new Error(`Failed replacing page ${a.label} (orig p.${i+1}, upd p.${a.updatePage}): `+pe.message); } cur++; npM[a.label]=cur; }
-      else { try { const [cp]=await newP.copyPages(origP,[i]); newP.addPage(cp); } catch(pe){ throw new Error(`Failed copying page ${i+1}: `+pe.message); } cur++; }
+    const replacements = Drw.actions.filter(a => a.type==='replace');
+    const insertions = Drw.actions.filter(a => a.type==='insert');
+    const origN = Drw.orig.pageCount, totalOps = origN + insertions.length;
+    const repSet = new Set(replacements.map(a => a.origPage));
+    const npM = {};
+
+    // === PHASE 1: Load ONLY original PDF, build skeleton ===
+    console.log('[SlipSheet] Phase 1: loading original PDF only');
+    const u1 = URL.createObjectURL(Drw.orig.file);
+    const origBuf = await fetch(u1).then(r => r.arrayBuffer());
+    URL.revokeObjectURL(u1);
+    const origP = await safeLoadPDF(origBuf, 'Original PDF');
+    const newP = await PDFDocument.create();
+    let cur = 0;
+    const ins = [...insertions].sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
+    let insI = 0;
+    for (let i = 0; i < origN; i++) {
+      prog(`Step 2/3: Skeleton page ${cur+1}/${totalOps}`, 8 + Math.floor(cur / totalOps * 28));
+      if (i % 2 === 0) await sleep(0);
+      while (insI < ins.length && ins[insI].newPos <= cur + 1) {
+        const a = ins[insI]; const [pp] = await newP.copyPages(origP, [0]);
+        newP.addPage(pp); cur++; npM[a.label] = cur; insI++;
+      }
+      const [cp] = await newP.copyPages(origP, [i]); newP.addPage(cp); cur++;
+      if (repSet.has(i + 1)) {
+        const a = Drw.actions.find(ax => ax.type==='replace' && ax.origPage === i + 1);
+        if (a) npM[a.label] = cur;
+      }
     }
-    while (insI<ins.length) { const a=ins[insI]; try { const [cp]=await newP.copyPages(updP,[a.updatePage-1]); newP.addPage(cp); } catch(pe){ throw new Error(`Failed inserting page ${a.label}: `+pe.message); } cur++; npM[a.label]=cur; insI++; }
-    prog('Finalizing PDF…', 85); await sleep(100);
-    const bytes = await newP.save(); _lastName = Drw.orig.fileName.replace(/\.pdf$/i,'')+'_Updated.pdf'; _lastBlob = new Blob([bytes],{type:'application/pdf'}); download(_lastBlob, _lastName);
+    while (insI < ins.length) {
+      const a = ins[insI]; const [pp] = await newP.copyPages(origP, [0]);
+      newP.addPage(pp); cur++; npM[a.label] = cur; insI++;
+    }
+    // Release original from memory now
+    origBuf.transfer; // hint to GC
+    console.log('[SlipSheet] Original PDF released, loading update PDF');
+
+    // === PHASE 2: Load update PDF, apply replacements ===
+    prog('Step 3/3: Applying updates…', 40); await sleep(100);
+    const u2 = URL.createObjectURL(Drw.upd.file);
+    const updBuf = await fetch(u2).then(r => r.arrayBuffer());
+    URL.revokeObjectURL(u2);
+    const updP = await safeLoadPDF(updBuf, 'Update PDF');
+    const replSorted = [...replacements].sort((a,b) => a.newPage - b.newPage);
+    const allIns = [...insertions].sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
+
+    // Replace pages (work backwards to keep indices stable)
+    let repCount = 0, repTotal = replSorted.length;
+    for (let ri = replSorted.length - 1; ri >= 0; ri--) {
+      const a = replSorted[ri]; repCount++;
+      if (repCount % 10 === 0) { prog(`Step 3/3: Replacing ${repCount}/${repTotal}`, 42 + Math.floor(repCount/repTotal*25)); await sleep(0); }
+      try {
+        const targetIdx = a.newPage - 1;
+        newP.removePage(targetIdx);
+        if (a.updatePage - 1 < updP.getPageCount()) {
+          const [cp] = await newP.copyPages(updP, [a.updatePage - 1]);
+          newP.insertPage(targetIdx, cp);
+        }
+      } catch(pe) { throw new Error('Failed replacing page '+a.label+': '+pe.message); }
+    }
+
+    // Insert new pages
+    for (let ii = 0; ii < allIns.length; ii++) {
+      const a = allIns[ii];
+      if (ii % 10 === 0) { prog(`Step 3/3: Inserting ${ii+1}/${allIns.length}`, 70 + Math.floor(ii/allIns.length*20)); await sleep(0); }
+      try {
+        const targetIdx = (a.newPos || a.newPage) - 1;
+        newP.removePage(targetIdx);
+        if (a.updatePage - 1 < updP.getPageCount()) {
+          const [cp] = await newP.copyPages(updP, [a.updatePage - 1]);
+          newP.insertPage(targetIdx, cp);
+        }
+      } catch(pe) { throw new Error('Failed inserting page '+a.label+': '+pe.message); }
+    }
+
+    prog('Saving PDF…', 92); await sleep(100);
+    const bytes = await newP.save();
+    _lastName = Drw.orig.fileName.replace(/\.pdf$/i,'')+'_Updated.pdf';
+    _lastBlob = new Blob([bytes],{type:'application/pdf'});
+    download(_lastBlob, _lastName);
     prog('Done!',100); await sleep(500); progOff();
     $id('drwDlBtn').style.display = '';
     toast("Updated PDF generated ✓ — Click 'Download PDF' if needed",5000);
     Drw.stage = 'review'; setStage('review');
-  } catch(e) { progOff(); toast('Error: '+e.message); Drw.stage='review'; setStage('review'); }
+  } catch(e) { progOff(); console.error('[SlipSheet] Generate PDF failed:', e.stack||e.message); const em = '❌ '+e.message; $id('drwErrorBanner').style.display='block'; $id('drwErrorBanner').innerHTML = em+' <span style="cursor:pointer;margin-left:12px;opacity:.5;font-size:14px" onclick="this.parentElement.style.display=\'none\'">✕ Dismiss</span>'; toast('Error: '+e.message,30000); Drw.stage='review'; setStage('review'); }
 }
 
 function drwExport(fmt) {
