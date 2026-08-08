@@ -159,7 +159,7 @@ main{flex:1;display:flex;overflow:hidden;position:relative}
 .prog-overlay{display:none;position:absolute;inset:0;background:rgba(251,251,250,.88);backdrop-filter:blur(5px);align-items:center;justify-content:center;z-index:20;flex-direction:column;gap:21px}
 .prog-overlay.active{display:flex}
 .prog-overlay .stxt{font-size:20px;font-weight:600;color:var(--text);letter-spacing:-.01em}
-.prog-track{width:300px;height:5px;background:var(--border);border-radius:3px;overflow:hidden}
+.prog-track{width:66vw;min-width:300px;max-width:800px;height:5px;background:var(--border);border-radius:3px;overflow:hidden}
 .prog-fill{height:100%;background:var(--accent);border-radius:3px;transition:width 300ms ease;width:0%}
 
 /* Toast */
@@ -482,7 +482,7 @@ window.drwDoOverlay = async function(idx) {
   const a = Drw.actions[idx], cmpArea = $id('drwCmpArea');
   cmpArea.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:30px">
     <div style="color:var(--text);font-weight:600;font-size:16px">Comparing pages…</div>
-    <div class="prog-track" style="width:200px;height:6px"><div class="prog-fill" id="diffProg" style="width:0%;display:block"></div></div>
+    <div class="prog-track" style="height:6px"><div class="prog-fill" id="diffProg" style="width:0%;display:block"></div></div>
     <div style="color:var(--text-tertiary);font-size:14px" id="diffStatus">Rendering…</div>
   </div>`;
   await sleep(60);
@@ -507,14 +507,31 @@ window.drwDoOverlay = async function(idx) {
     bctx.drawImage(uc, 0, 0);
     const updData = bctx.getImageData(0, 0, w, h);
 
-    // Create output canvas
+    // Create overlay: greyscale base with red diff highlights
     const out = document.createElement('canvas'); out.width = w; out.height = h;
     const octx = out.getContext('2d');
-    const outData = octx.createImageData(w, h);
-
-    const threshold = 40;
+    
+    // First, draw the original page at 50% opacity in greyscale
+    const gsCanvas = document.createElement('canvas'); gsCanvas.width = w; gsCanvas.height = h;
+    const gsCtx = gsCanvas.getContext('2d');
+    gsCtx.drawImage(oc, 0, 0);
+    const gsData = gsCtx.getImageData(0, 0, w, h);
+    for (let i = 0; i < w * h; i++) {
+      const pi = i * 4;
+      const gray = Math.round(gsData.data[pi] * 0.299 + gsData.data[pi+1] * 0.587 + gsData.data[pi+2] * 0.114);
+      gsData.data[pi] = gray;
+      gsData.data[pi+1] = gray;
+      gsData.data[pi+2] = gray;
+      gsData.data[pi+3] = Math.round(gsData.data[pi+3] * 0.45);
+    }
+    gsCtx.putImageData(gsData, 0, 0);
+    octx.drawImage(gsCanvas, 0, 0);
+    
+    // Now find and highlight differences
+    const threshold = 50;
     let diffCount = 0;
     const totalPixels = w * h;
+    const diffMask = new Uint8Array(totalPixels); // 1 = diff, 0 = same
 
     $id('diffStatus').textContent = 'Comparing pixels…';
     await sleep(40);
@@ -534,32 +551,82 @@ window.drwDoOverlay = async function(idx) {
 
       if (diff > threshold) {
         diffCount++;
-        const r = Math.min(255, origData.data[pi]); 
-        const g = Math.min(255, origData.data[pi+1] * 0.3 + updData.data[pi+1] * 0.3);
-        const b = Math.min(255, origData.data[pi+2] * 0.3 + updData.data[pi+2] * 0.3);
-        outData.data[pi] = 255;
-        outData.data[pi+1] = 80;
-        outData.data[pi+2] = 80;
-        outData.data[pi+3] = 180;
-      } else {
-        const oAlpha = origData.data[pi+3] / 255, uAlpha = updData.data[pi+3] / 255;
-        outData.data[pi] = Math.round(origData.data[pi] * 0.5 * oAlpha + updData.data[pi] * 0.5 * uAlpha);
-        outData.data[pi+1] = Math.round(origData.data[pi+1] * 0.5 * oAlpha + updData.data[pi+1] * 0.5 * uAlpha);
-        outData.data[pi+2] = Math.round(origData.data[pi+2] * 0.5 * oAlpha + updData.data[pi+2] * 0.5 * uAlpha);
-        outData.data[pi+3] = 255;
+        diffMask[i] = 1;
       }
     }
 
-    octx.putImageData(outData, 0, 0);
+    $id('diffProg').style.width = '85%';
+    $id('diffStatus').textContent = 'Drawing overlays…';
+    await sleep(40);
+
+    // Draw red diff overlay with circular detection
+    if (diffCount > 0) {
+      const diffCanvas = document.createElement('canvas'); diffCanvas.width = w; diffCanvas.height = h;
+      const dctx = diffCanvas.getContext('2d');
+      const diffImg = dctx.createImageData(w, h);
+      
+      for (let i = 0; i < totalPixels; i++) {
+        if (diffMask[i]) {
+          const pi = i * 4;
+          // Semitransparent red overlay
+          diffImg.data[pi] = 255;
+          diffImg.data[pi+1] = 40;
+          diffImg.data[pi+2] = 40;
+          diffImg.data[pi+3] = 160;
+        }
+      }
+      dctx.putImageData(diffImg, 0, 0);
+      octx.drawImage(diffCanvas, 0, 0);
+    }
+
+    // Draw circles around diff clusters (simplified: just draw small dots at diff points)
+    octx.strokeStyle = '#ff0000';
+    octx.lineWidth = 2;
+    octx.globalAlpha = 0.7;
+    
+    // Find diff clusters by sampling every 4th pixel
+    const visited = new Uint8Array(totalPixels);
+    for (let y = 0; y < h; y += 8) {
+      for (let x = 0; x < w; x += 8) {
+        const idx = y * w + x;
+        if (diffMask[idx] && !visited[idx]) {
+          // Flood fill to find cluster bounds
+          let minX = x, maxX = x, minY = y, maxY = y, count = 0;
+          const stack = [[x, y]];
+          visited[idx] = 1;
+          while (stack.length && count < 2000) {
+            const [cx, cy] = stack.pop();
+            minX = Math.min(minX, cx); maxX = Math.max(maxX, cx);
+            minY = Math.min(minY, cy); maxY = Math.max(maxY, cy);
+            count++;
+            for (const [nx, ny] of [[cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1],[cx-1,cy-1],[cx+1,cy-1],[cx-1,cy+1],[cx+1,cy+1]]) {
+              if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                const ni = ny * w + nx;
+                if (diffMask[ni] && !visited[ni]) { visited[ni] = 1; stack.push([nx, ny]); }
+              }
+            }
+          }
+          if (count > 4) {
+            const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+            const r = Math.max((maxX - minX) / 2, (maxY - minY) / 2) + 4;
+            octx.beginPath();
+            octx.arc(cx, cy, Math.min(r, 80), 0, Math.PI * 2);
+            octx.stroke();
+          }
+        }
+      }
+    }
+    octx.globalAlpha = 1.0;
 
     $id('diffProg').style.width = '100%';
     const pct = (diffCount / totalPixels * 100).toFixed(1);
     $id('diffStatus').textContent = `Done! ${diffCount} different pixels (${pct}%)`;
 
     cmpArea.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:9px;width:100%;overflow:auto">
-      <div style="display:flex;gap:18px;align-items:center">
-        <span style="display:flex;align-items:center;gap:5px;font-size:14px"><span style="width:12px;height:12px;border-radius:3px;background:#ff5050;display:inline-block"></span> Changed areas (${pct}%)</span>
-        <span style="display:flex;align-items:center;gap:5px;font-size:14px;color:var(--text-tertiary)"><span style="width:12px;height:12px;border-radius:3px;background:#999;display:inline-block"></span> Unchanged</span>
+      <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;justify-content:center">
+        <span style="display:flex;align-items:center;gap:5px;font-size:14px"><span style="width:14px;height:14px;border-radius:3px;background:#ff0000;display:inline-block;border:2px solid #cc0000"></span> <strong>Changed (${pct}%)</strong> — red overlay + circled</span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:14px;color:var(--text-tertiary)"><span style="width:14px;height:14px;border-radius:3px;background:#aaa;display:inline-block"></span> Unchanged — greyscale</span>
+        <span style="font-size:14px;color:var(--text-secondary)">${diffCount.toLocaleString()} diff pixels / ${totalPixels.toLocaleString()} total</span>
       </div>
       <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;box-shadow:var(--shadow-lg)"></div>
     </div>`;
@@ -824,6 +891,7 @@ async function spcGeneratePDF() {
   if (!Spc.actions.length) { toast('No changes to generate'); return; }
   Spc.stage = 'export'; setStage('export');
   _lastBlob=null; _lastName='';
+  $id('spcErrorBanner').style.display='none';
   prog('Loading specification PDFs…', 5);
   try {
     console.log('[SlipSheet] Loading spec file buffers…', Spc.orig.fileName, Spc.upd.fileName);
