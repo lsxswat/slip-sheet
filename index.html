@@ -458,11 +458,15 @@ async function drwGeneratePDF() {
   _lastBlob=null; _lastName='';
   prog('Loading PDFs…', 5); await sleep(100);
   try {
+    console.log('[SlipSheet] Loading file buffers…', Drw.orig.fileName, Drw.upd.fileName);
     const [obuf, ubuf] = await Promise.all([Drw.orig.file.arrayBuffer(), Drw.upd.file.arrayBuffer()]);
+    console.log('[SlipSheet] Buffers loaded, sizes:', obuf.byteLength, ubuf.byteLength);
+    console.log('[SlipSheet] Loading PDFs with pdf-lib…');
     const [origP, updP] = await Promise.all([
       PDFDocument.load(obuf.slice(0)),
       PDFDocument.load(ubuf.slice(0))
     ]);
+    console.log('[SlipSheet] PDFs loaded successfully');
     prog('Building page order…', 20); await sleep(100);
     const newP = await PDFDocument.create(); const origN = origP.getPageCount();
     const repMap = new Map(); Drw.actions.filter(a => a.type==='replace').forEach(a => repMap.set(a.origPage-1, a));
@@ -700,8 +704,12 @@ async function spcGeneratePDF() {
   _lastBlob=null; _lastName='';
   prog('Loading specification PDFs…', 5);
   try {
+    console.log('[SlipSheet] Loading spec file buffers…', Spc.orig.fileName, Spc.upd.fileName);
     const [obuf, ubuf] = await Promise.all([Spc.orig.file.arrayBuffer(), Spc.upd.file.arrayBuffer()]);
+    console.log('[SlipSheet] Spec buffers loaded, sizes:', obuf.byteLength, ubuf.byteLength);
+    console.log('[SlipSheet] Loading spec PDFs with pdf-lib…');
     const [origP, updP] = await Promise.all([PDFDocument.load(obuf.slice(0)), PDFDocument.load(ubuf.slice(0))]);
+    console.log('[SlipSheet] Spec PDFs loaded successfully');
     prog('Building page order…', 20); await sleep(100);
     const newP = await PDFDocument.create(); const origN = origP.getPageCount();
 
