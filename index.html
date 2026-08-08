@@ -1131,17 +1131,55 @@ async function drwGenerateByteLevel(origSize, updSize) {
     xref += `trailer\n<< /Size ${nextObjNum} /Root ${catalogNum} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
     outputParts.push(new TextEncoder().encode(xref));
     
-    // Use Blob directly — no single giant ArrayBuffer allocation
+    // Stream directly to disk using File System Access API
     const totalLen = outputParts.reduce((acc, p) => acc + p.length, 0);
-    prog('Byte-level: Building final PDF ('+(totalLen/1024/1024).toFixed(1)+'MB)…', 95);
-    await sleep(50);
-    
-    _lastName = Drw.orig.fileName.replace(/\.pdf$/i,'')+'_Updated.pdf';
-    _lastBlob = new Blob(outputParts, {type:'application/pdf'});
-    download(_lastBlob, _lastName);
-    prog('Done!',100); await sleep(500); progOff();
-    $id('drwDlBtn').style.display = '';
-    toast(`Updated PDF generated via byte-level processor ✓ (${totalP} pages)`,5000);
+    const outName = Drw.orig.fileName.replace(/\.pdf$/i,'')+'_Updated.pdf';
+    let saved = false;
+
+    if (window.showSaveFilePicker) {
+      try {
+        prog('Saving to disk…', 93); await sleep(50);
+        const handle = await window.showSaveFilePicker({
+          suggestedName: outName,
+          types: [{ description: 'PDF Document', accept: { 'application/pdf': ['.pdf'] } }]
+        });
+        const writable = await handle.createWritable();
+        prog('Streaming '+(totalLen/1024/1024).toFixed(1)+'MB to disk…', 94);
+        let written = 0;
+        for (const part of outputParts) {
+          await writable.write(part);
+          written++;
+          if (written % 100 === 0) {
+            prog(`Saving page ${written}/${outputParts.length}`, 94 + Math.floor(written/outputParts.length*4));
+            await sleep(0);
+          }
+        }
+        await writable.close();
+        saved = true;
+        _lastBlob = null; _lastName = outName;
+        prog('Saved!', 100); await sleep(400); progOff();
+        $id('drwDlBtn').style.display = 'none';
+        toast('✅ PDF saved to disk — '+outName, 5000);
+      } catch(e) {
+        if (e.name === 'AbortError') {
+          progOff(); toast('Save cancelled', 3000);
+          Drw.stage = 'review'; setStage('review');
+          return; // User cancelled
+        }
+        console.warn('[SlipSheet] FileSystem API failed, falling back to download:', e.message);
+      }
+    }
+
+    // Fallback: Blob download
+    if (!saved) {
+      prog('Building download…', 95); await sleep(50);
+      _lastBlob = new Blob(outputParts, {type:'application/pdf'});
+      _lastName = outName;
+      download(_lastBlob, _lastName);
+      prog('Done!',100); await sleep(500); progOff();
+      $id('drwDlBtn').style.display = '';
+      toast(`Updated PDF generated ✓ (${totalP} pages)`,5000);
+    }
     Drw.stage = 'review'; setStage('review');
     
   } catch(e) { progOff(); const em = '❌ '+e.message; $id('drwErrorBanner').style.display='block'; $id('drwErrorBanner').innerHTML = em+' <span style="cursor:pointer;margin-left:12px;opacity:.5;font-size:14px" onclick="this.parentElement.style.display=\'none\'">✕ Dismiss</span>'; toast('Byte-level error: '+e.message,30000); Drw.stage='review'; setStage('review'); console.error('[SlipSheet] Byte-level failed:', e); }
