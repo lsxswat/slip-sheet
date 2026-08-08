@@ -354,7 +354,7 @@ function findPageObjects(pdf) {
   for (const [objNum, off] of Object.entries(pdf.offsets)) {
     const range = getObjectByteRange(pdf, parseInt(objNum));
     if (!range) continue;
-    const objBytes = new Uint8Array(pdf.buf, range.start, range.end - range.start);
+    const objBytes = new Uint8Array(pdf.buf.slice(range.start, range.end));
     const str = decoder.decode(objBytes);
     if (str.includes('/Type') && str.includes('/Page') && !str.includes('/Pages')) {
       pages.push({ objNum: parseInt(objNum), offset: off });
@@ -1050,7 +1050,7 @@ async function drwGenerateByteLevel(origSize, updSize) {
         processedOld.add(key);
         const range = getObjectByteRange(data, n);
         if (!range) continue;
-        const rawBytes = new Uint8Array(data.buf, range.start, range.end - range.start);
+        const rawBytes = new Uint8Array(data.buf.slice(range.start, range.end));
         let objStr = new TextDecoder('latin1').decode(rawBytes);
         // Don't renumber yet - just store
         objectMap[key] = nextObjNum;
@@ -1090,6 +1090,10 @@ async function drwGenerateByteLevel(origSize, updSize) {
       }
     }
     
+    // Release source buffers now that all data is copied
+    origRawBuf = null; updRawBuf = null; pdfData = null; updData = null;
+    await sleep(100);
+    
     // Build page tree object
     const kidsRef = pageTreeKids.map(k => `${k} 0 R`).join(' ');
     const pageTreeObj = `${nextObjNum} 0 obj\n<< /Type /Pages /Kids [${kidsRef}] /Count ${pageTreeKids.length} >>\nendobj\n`;
@@ -1126,10 +1130,6 @@ async function drwGenerateByteLevel(origSize, updSize) {
     }
     xref += `trailer\n<< /Size ${nextObjNum} /Root ${catalogNum} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
     outputParts.push(new TextEncoder().encode(xref));
-    
-    // Release raw input buffers
-    origRawBuf = null; updRawBuf = null; pdfData = null; updData = null;
-    await sleep(100);
     
     // Use Blob directly — no single giant ArrayBuffer allocation
     const totalLen = outputParts.reduce((acc, p) => acc + p.length, 0);
