@@ -267,6 +267,161 @@ import * as pdfjsLib from 'pdfjs-dist/build/pdf.min.mjs';
 import { PDFDocument } from 'pdf-lib';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/build/pdf.worker.min.mjs';
 
+
+// ── Byte-level PDF page extractor (for large files) ──
+function parsePDFByteSections(buf) {
+  const dv = new DataView(buf);
+  const decoder = new TextDecoder('latin1');
+  // Read last 1KB for trailer/xref
+  const tailSize = Math.min(2048, buf.byteLength);
+  const tailBytes = new Uint8Array(buf.slice(buf.byteLength - tailSize));
+  const tail = decoder.decode(tailBytes);
+  
+  // Find startxref
+  const sxm = tail.match(/startxref\s*(\d+)/);
+  if (!sxm) throw new Error('Cannot find startxref in PDF');
+  const xrefOffset = parseInt(sxm[1]);
+  
+  // Read xref table
+  let xrefStr = '';
+  for (let off = xrefOffset; off < buf.byteLength - 20; off += 512) {
+    const chunk = new Uint8Array(buf.slice(off, Math.min(off + 1024, buf.byteLength)));
+    xrefStr += decoder.decode(chunk);
+    if (xrefStr.includes('trailer')) break;
+  }
+  
+  // Parse xref entries: "nnnnnnnnnn ggggg n" per line
+  const offsets = {};
+  const xrefLines = xrefStr.split(/\r?\n/);
+  let inXref = false;
+  for (const line of xrefLines) {
+    if (line.trim() === 'xref') { inXref = true; continue; }
+    if (!inXref) continue;
+    if (line.includes('trailer')) break;
+    const m = line.match(/^(\d{10}) (\d{5}) ([nf])/);
+    if (m) {
+      const [_, off, gen, type] = m;
+      const objNum = Object.keys(offsets).length + 1; // approximate
+      if (type === 'n') offsets[objNum] = parseInt(off);
+    }
+  }
+  
+  // Parse xref section headers like "0 50" to get object number ranges
+  let objNum = 0;
+  const result = {};
+  inXref = false;
+  for (const line of xrefLines) {
+    if (line.trim() === 'xref') { inXref = true; continue; }
+    if (!inXref) continue;
+    if (line.includes('trailer')) break;
+    const range = line.match(/^(\d+) (\d+)$/);
+    if (range) { objNum = parseInt(range[1]); continue; }
+    const m = line.match(/^(\d{10}) (\d{5}) ([nf])/);
+    if (m) {
+      if (m[3] === 'n') result[objNum] = parseInt(m[1]);
+      objNum++;
+    }
+  }
+  
+  return { offsets: result, buf, decoder };
+}
+
+function getObjectByteRange(pdf, objNum) {
+  const off = pdf.offsets[objNum];
+  if (off === undefined) return null;
+  // Scan forward from offset to find "endobj"
+  let end = off;
+  const max = Math.min(off + 50000, pdf.buf.byteLength);
+  for (let i = off; i < max - 7; i++) {
+    if (pdf.decoder.decode(new Uint8Array(pdf.buf.slice(i, i + 7))) === '\nendobj') {
+      end = i + 7; break;
+    }
+    if (pdf.decoder.decode(new Uint8Array(pdf.buf.slice(i, i + 6))) === 'endobj') {
+      end = i + 6; break;
+    }
+  }
+  return { start: off, end };
+}
+
+function findPageObjects(pdf) {
+  // Find page tree from catalog
+  // Simplified: scan all objects for /Type /Page
+  const pages = [];
+  const decoder = pdf.decoder;
+  for (const [objNum, off] of Object.entries(pdf.offsets)) {
+    const range = getObjectByteRange(pdf, parseInt(objNum));
+    if (!range) continue;
+    const objBytes = new Uint8Array(pdf.buf.slice(range.start, range.end));
+    const str = decoder.decode(objBytes);
+    if (str.includes('/Type') && str.includes('/Page') && !str.includes('/Pages')) {
+      pages.push({ objNum: parseInt(objNum), offset: off });
+    }
+  }
+  // Sort by offset (approximate page order)
+  pages.sort((a, b) => a.offset - b.offset);
+  return pages;
+}
+
+function collectObjectTree(pdf, objNum, visited = new Set()) {
+  if (visited.has(objNum)) return visited;
+  visited.add(objNum);
+  const range = getObjectByteRange(pdf, objNum);
+  if (!range) return visited;
+  const objBytes = new Uint8Array(pdf.buf.slice(range.start, range.end));
+  const str = pdf.decoder.decode(objBytes);
+  // Find all "NN 0 R" references
+  const refs = str.matchAll(/(\d+)\s+0\s+R/g);
+  for (const m of refs) {
+    const refNum = parseInt(m[1]);
+    if (refNum > 0 && !visited.has(refNum)) {
+      collectObjectTree(pdf, refNum, visited);
+    }
+  }
+  return visited;
+}
+
+function buildPDFFromPages(sourcePages, pdfData, insertPages, insertData) {
+  // sourcePages: [{objNum, offset}] from original
+  // pdfData: result of parsePDFByteSections for original
+  // insertPages: [{objNum, offset, position}] from update
+  // insertData: parsePDFByteSections for update
+  // Returns: {byteChunks: [{start, end, source}]} in final order
+  
+  const chunks = [];
+  let pos = 0;
+  for (const sp of sourcePages) {
+    // Check if any insert at this position
+    for (const ip of insertPages) {
+      if (ip.position === pos + 1) {
+        const tree = collectObjectTree(insertData, ip.objNum);
+        for (const n of tree) {
+          const range = getObjectByteRange(insertData, n);
+          if (range) chunks.push({ ...range, source: 'insert' });
+        }
+        pos++;
+      }
+    }
+    const tree = collectObjectTree(pdfData, sp.objNum);
+    for (const n of tree) {
+      const range = getObjectByteRange(pdfData, n);
+      if (range) chunks.push({ ...range, source: 'original' });
+    }
+    pos++;
+  }
+  // Remaining inserts
+  for (const ip of insertPages) {
+    if (ip.position > pos) {
+      const tree = collectObjectTree(insertData, ip.objNum);
+      for (const n of tree) {
+        const range = getObjectByteRange(insertData, n);
+        if (range) chunks.push({ ...range, source: 'insert' });
+      }
+      pos++;
+    }
+  }
+  return chunks;
+}
+
 function safeLoadPDF(buf, label) {
   try {
     return PDFDocument.load(buf);
@@ -816,6 +971,174 @@ async function drwGeneratePDF() {
     toast("Updated PDF generated ✓ — Click 'Download PDF' if needed",5000);
     Drw.stage = 'review'; setStage('review');
   } catch(e) { progOff(); console.error('[SlipSheet] Generate PDF failed:', e.stack||e.message); const em = '❌ '+e.message; $id('drwErrorBanner').style.display='block'; $id('drwErrorBanner').innerHTML = em+' <span style="cursor:pointer;margin-left:12px;opacity:.5;font-size:14px" onclick="this.parentElement.style.display=\'none\'">✕ Dismiss</span>'; toast('Error: '+e.message,30000); Drw.stage='review'; setStage('review'); }
+}
+
+async function drwGenerateByteLevel(origSize, updSize) {
+  try {
+    const replacements = Drw.actions.filter(a => a.type==='replace');
+    const insertions = Drw.actions.filter(a => a.type==='insert');
+    const repSet = new Set(replacements.map(a => a.origPage));
+    const npM = {};
+
+    fakeProg('Byte-level: Loading raw PDF data…', 15);
+    const u1 = URL.createObjectURL(Drw.orig.file);
+    const origRaw = await fetch(u1).then(r => r.arrayBuffer());
+    URL.revokeObjectURL(u1);
+    
+    prog('Byte-level: Parsing PDF structure…', 25);
+    await sleep(50);
+    const pdfData = parsePDFByteSections(origRaw);
+    const origPages = findPageObjects(pdfData);
+    console.log('[SlipSheet] Byte-level: found',origPages.length,'pages via byte scan');
+    
+    // Build final page order
+    const finalOrder = [];
+    let insI = 0;
+    const ins = [...insertions].sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
+    for (let i = 0; i < origPages.length; i++) {
+      while (insI < ins.length && ins[insI].newPos <= finalOrder.length + 1) {
+        finalOrder.push({ type: 'insert', action: ins[insI], pageIdx: finalOrder.length });
+        insI++;
+      }
+      const isReplace = repSet.has(i + 1);
+      if (isReplace) {
+        const a = replacements.find(ax => ax.origPage === i + 1);
+        finalOrder.push({ type: 'replace', action: a, origPageIdx: i });
+      } else {
+        finalOrder.push({ type: 'keep', origPageIdx: i });
+      }
+    }
+    while (insI < ins.length) {
+      finalOrder.push({ type: 'insert', action: ins[insI], pageIdx: finalOrder.length });
+      insI++;
+    }
+
+    // Load update if needed
+    let updData = null, updPages = null;
+    const needsUpdate = replacements.length > 0 || insertions.length > 0;
+    if (needsUpdate) {
+      prog('Byte-level: Loading update PDF…', 35);
+      const u2 = URL.createObjectURL(Drw.upd.file);
+      const updRaw = await fetch(u2).then(r => r.arrayBuffer());
+      URL.revokeObjectURL(u2);
+      updData = parsePDFByteSections(updRaw);
+      updPages = findPageObjects(updData);
+    }
+
+    // Build output byte by byte
+    const totalP = finalOrder.length;
+    const outputParts = [];
+    
+    // PDF header
+    outputParts.push(new TextEncoder().encode('%PDF-1.7\n'));
+    
+    // Collect all needed objects with new numbering
+    const objectMap = {}; // oldKey -> newNum
+    let nextObjNum = 1;
+    const objectBytes = []; // {bytes, newNum}
+    const processedOld = new Set();
+    
+    function addObjectTree(data, objNum, sourceLabel) {
+      const tree = collectObjectTree(data, objNum);
+      for (const n of tree) {
+        const key = sourceLabel + ':' + n;
+        if (processedOld.has(key)) continue;
+        processedOld.add(key);
+        const range = getObjectByteRange(data, n);
+        if (!range) continue;
+        const rawBytes = new Uint8Array(data.buf.slice(range.start, range.end));
+        let objStr = new TextDecoder('latin1').decode(rawBytes);
+        // Don't renumber yet - just store
+        objectMap[key] = nextObjNum;
+        objectBytes.push({ bytes: rawBytes, newNum: nextObjNum, oldNum: n, source: sourceLabel, key });
+        nextObjNum++;
+      }
+    }
+    
+    // Page tree root
+    const pageTreeKids = [];
+    
+    for (let pi = 0; pi < totalP; pi++) {
+      prog(`Byte-level: Processing page ${pi+1}/${totalP}`, 40 + Math.floor(pi/totalP*50));
+      if (pi % 5 === 0) await sleep(0);
+      
+      const entry = finalOrder[pi];
+      if (entry.type === 'keep') {
+        const origPage = origPages[entry.origPageIdx];
+        if (origPage) {
+          addObjectTree(pdfData, origPage.objNum, 'orig');
+          pageTreeKids.push(objectMap['orig:' + origPage.objNum]);
+        }
+      } else if (entry.type === 'replace') {
+        const updPage = updPages ? updPages[entry.action.updatePage - 1] : null;
+        if (updPage) {
+          addObjectTree(updData, updPage.objNum, 'upd');
+          pageTreeKids.push(objectMap['upd:' + updPage.objNum]);
+        }
+      } else if (entry.type === 'insert') {
+        const updPage = updPages ? updPages[entry.action.updatePage - 1] : null;
+        if (updPage) {
+          addObjectTree(updData, updPage.objNum, 'upd');
+          pageTreeKids.push(objectMap['upd:' + updPage.objNum]);
+        }
+      }
+    }
+    
+    // Build page tree object
+    const kidsRef = pageTreeKids.map(k => `${k} 0 R`).join(' ');
+    const pageTreeObj = `${nextObjNum} 0 obj\n<< /Type /Pages /Kids [${kidsRef}] /Count ${pageTreeKids.length} >>\nendobj\n`;
+    objectBytes.push({ bytes: new TextEncoder().encode(pageTreeObj), newNum: nextObjNum, oldNum: 0, source: 'generated', key: 'pagetree' });
+    nextObjNum++;
+    
+    // Catalog object
+    const catalogObj = `${nextObjNum} 0 obj\n<< /Type /Catalog /Pages ${nextObjNum-1} 0 R >>\nendobj\n`;
+    objectBytes.push({ bytes: new TextEncoder().encode(catalogObj), newNum: nextObjNum, oldNum: 0, source: 'generated', key: 'catalog' });
+    const catalogNum = nextObjNum;
+    nextObjNum++;
+    
+    // Write all objects with renumbered references
+    prog('Byte-level: Writing output…', 92);
+    const offsets = {};
+    for (const ob of objectBytes) {
+      offsets[ob.newNum] = outputParts.reduce((acc, p) => acc + p.length, 0);
+      let str = new TextDecoder('latin1').decode(ob.bytes);
+      // Renumber references: "NN 0 R" -> "newNum 0 R"
+      for (const [key, newNum] of Object.entries(objectMap)) {
+        const [_, oldN] = key.split(':');
+        str = str.replace(new RegExp(`\\b${oldN}\\s+0\\s+R\\b`, 'g'), `${newNum} 0 R`);
+      }
+      outputParts.push(new TextEncoder().encode(str + '\n'));
+    }
+    
+    // Build xref table
+    const xrefOffset = outputParts.reduce((acc, p) => acc + p.length, 0);
+    let xref = `xref\n0 ${nextObjNum}\n`;
+    xref += '0000000000 65535 f \n';
+    for (let i = 1; i < nextObjNum; i++) {
+      const off = offsets[i] || 0;
+      xref += String(off).padStart(10, '0') + ' 00000 n \n';
+    }
+    xref += `trailer\n<< /Size ${nextObjNum} /Root ${catalogNum} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+    outputParts.push(new TextEncoder().encode(xref));
+    
+    // Final assembly
+    const totalLen = outputParts.reduce((acc, p) => acc + p.length, 0);
+    const finalBuf = new Uint8Array(totalLen);
+    let offset = 0;
+    for (const part of outputParts) {
+      finalBuf.set(part, offset);
+      offset += part.length;
+    }
+    
+    _lastName = Drw.orig.fileName.replace(/\.pdf$/i,'')+'_Updated.pdf';
+    _lastBlob = new Blob([finalBuf], {type:'application/pdf'});
+    download(_lastBlob, _lastName);
+    prog('Done!',100); await sleep(500); progOff();
+    $id('drwDlBtn').style.display = '';
+    toast(`Updated PDF generated via byte-level processor ✓ (${totalP} pages)`,5000);
+    Drw.stage = 'review'; setStage('review');
+    
+  } catch(e) { progOff(); const em = '❌ '+e.message; $id('drwErrorBanner').style.display='block'; $id('drwErrorBanner').innerHTML = em+' <span style="cursor:pointer;margin-left:12px;opacity:.5;font-size:14px" onclick="this.parentElement.style.display=\'none\'">✕ Dismiss</span>'; toast('Byte-level error: '+e.message,30000); Drw.stage='review'; setStage('review'); console.error('[SlipSheet] Byte-level failed:', e); }
 }
 
 function drwExport(fmt) {
