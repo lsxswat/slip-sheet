@@ -214,6 +214,7 @@ main{flex:1;display:flex;overflow:hidden;position:relative}
       <button class="btn btn-pri btn-lg" id="drwAnalyzeBtn" disabled>Analyze Drawing Set →</button>
     </div>
     <div class="review-wrap" id="drwReview">
+      <div id="drwErrorBanner" style="display:none;margin:0;padding:14px 24px;background:#fef2f2;color:#991b1b;font-size:16px;font-weight:600;border-bottom:2px solid #fca5a5;text-align:center;line-height:1.5"></div>
       <div class="review-cols">
         <div class="col-orig"><div class="col-orig-hdr">Original Set</div><div class="info-row"><div class="lbl">File</div><div class="val" id="ivFn" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</div></div><div class="info-row"><div class="lbl">Pages</div><div class="val" id="ivPg">—</div></div><div class="info-row"><div class="lbl">Bookmarks</div><div class="val" id="ivBm">—</div></div><div class="bmtree" id="bmTree"><h4>Bookmark Structure</h4></div></div>
         <div class="col-changes"><div class="ch-top"><h3>Detected Changes</h3><div class="stat-row" id="drwStatRow"></div><input class="search-inp" placeholder="Filter sheets…" id="drwSearch"></div><div class="ch-scroll" id="drwChangesList"></div></div>
@@ -235,6 +236,8 @@ main{flex:1;display:flex;overflow:hidden;position:relative}
       <button class="btn btn-pri btn-lg" id="spcAnalyzeBtn" disabled>Analyze Specification →</button>
     </div>
     <div class="review-wrap" id="spcReview">
+      <div id="drwErrorBanner" style="display:none;margin:0;padding:14px 24px;background:#fef2f2;color:#991b1b;font-size:16px;font-weight:600;border-bottom:2px solid #fca5a5;text-align:center;line-height:1.5"></div>
+      <div id="spcErrorBanner" style="display:none;margin:0;padding:14px 24px;background:#fef2f2;color:#991b1b;font-size:16px;font-weight:600;border-bottom:2px solid #fca5a5;text-align:center;line-height:1.5"></div>
       <div class="review-cols">
         <div class="col-orig"><div class="col-orig-hdr">Original Spec</div><div class="info-row"><div class="lbl">File</div><div class="val" id="sivFn" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</div></div><div class="info-row"><div class="lbl">Pages</div><div class="val" id="sivPg">—</div></div><div class="info-row"><div class="lbl">Sections</div><div class="val" id="sivSec">—</div></div><div class="bmtree" id="spcSectionsTree"><h4>Section List</h4></div></div>
         <div class="col-changes"><div class="ch-top"><h3>Section Changes</h3><div class="stat-row" id="spcStatRow"></div><input class="search-inp" placeholder="Filter sections…" id="spcSearch"></div><div class="ch-scroll" id="spcChangesList"></div></div>
@@ -436,7 +439,7 @@ async function drwRenderPreview(idx) {
     // Insert: just show the new sheet
     area.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-tertiary);font-size:18px">Loading preview…</div>';
     try {
-      if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await Drw.upd.file.arrayBuffer() }).promise;
+      if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await new Response(Drw.upd.file).arrayBuffer() }).promise;
       const uc = await drwRenderPage(await Drw.jsDocs.upd.getPage(a.updatePage));
       area.innerHTML = `<div class="pv-slot" style="max-width:60%"><span class="pv-lbl">New Sheet · ${escHtml(a.label)}</span>${uc?'<canvas></canvas>':'<div style="padding:21px;color:var(--text-tertiary);font-size:15px">Preview unavailable</div>'}</div>`;
       drwCopyCv(area.querySelector('canvas'), uc);
@@ -466,7 +469,7 @@ window.drwSideBySide = async function(idx) {
   cmpArea.innerHTML = '<div style="color:var(--text-tertiary);font-size:15px;padding:30px">Loading side-by-side…</div>';
   try {
     if (!Drw.jsDocs.orig) Drw.jsDocs.orig = await pdfjsLib.getDocument({ data: await Drw.orig.file.arrayBuffer() }).promise;
-    if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await Drw.upd.file.arrayBuffer() }).promise;
+    if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await new Response(Drw.upd.file).arrayBuffer() }).promise;
     const [op, up] = await Promise.all([Drw.jsDocs.orig.getPage(a.origPage), Drw.jsDocs.upd.getPage(a.updatePage)]);
     const [oc, uc] = await Promise.all([drwRenderPage(op), drwRenderPage(up)]);
     cmpArea.innerHTML = `<div class="pv-slot"><span class="pv-lbl">Original · Page ${a.origPage}</span></div><div class="pv-slot"><span class="pv-lbl">Updated · Page ${a.updatePage}</span></div>`;
@@ -486,7 +489,7 @@ window.drwDoOverlay = async function(idx) {
 
   try {
     if (!Drw.jsDocs.orig) Drw.jsDocs.orig = await pdfjsLib.getDocument({ data: await Drw.orig.file.arrayBuffer() }).promise;
-    if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await Drw.upd.file.arrayBuffer() }).promise;
+    if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await new Response(Drw.upd.file).arrayBuffer() }).promise;
     const [op, up] = await Promise.all([Drw.jsDocs.orig.getPage(a.origPage), Drw.jsDocs.upd.getPage(a.updatePage)]);
 
     // Render both at same scale (fit to container)
@@ -570,10 +573,14 @@ async function drwGeneratePDF() {
   if (!Drw.actions.length) { toast('No changes to generate'); return; }
   Drw.stage = 'export'; setStage('export');
   _lastBlob=null; _lastName='';
+  $id('drwErrorBanner').style.display='none';
   prog('Loading PDFs…', 5); await sleep(100);
   try {
     console.log('[SlipSheet] Loading file buffers…', Drw.orig.fileName, Drw.upd.fileName);
-    const [obuf, ubuf] = await Promise.all([Drw.orig.file.arrayBuffer(), Drw.upd.file.arrayBuffer()]);
+    const [obuf, ubuf] = await Promise.all([
+      new Response(Drw.orig.file).arrayBuffer(),
+      new Response(Drw.upd.file).arrayBuffer()
+    ]);
     console.log('[SlipSheet] Buffers loaded, sizes:', obuf.byteLength, ubuf.byteLength);
     console.log('[SlipSheet] Loading PDFs with pdf-lib…');
     const [origP, updP] = await Promise.all([
@@ -612,7 +619,7 @@ function drwExport(fmt) {
 
 window.resetDrawing = function() {
   Drw.orig = Drw.upd = null; Drw.actions = []; Drw.selIdx = -1; Drw.jsDocs = { orig:null, upd:null }; Drw.stage = 'upload';
-  $id('drwUpload').classList.remove('hidden'); $id('drwReview').classList.remove('active');
+  $id('drwUpload').classList.remove('hidden'); $id('drwReview').classList.remove('active'); $id('drwErrorBanner').style.display='none';
   $id('bottomBarDrw').classList.remove('active'); $id('resetBtnDrw').style.display = 'none'; $id('drwDlBtn').style.display = 'none';
   $id('ocard').classList.remove('ready'); $id('ucard').classList.remove('ready');
   $id('ofi').value = ''; $id('ufi').value = '';
@@ -820,7 +827,10 @@ async function spcGeneratePDF() {
   prog('Loading specification PDFs…', 5);
   try {
     console.log('[SlipSheet] Loading spec file buffers…', Spc.orig.fileName, Spc.upd.fileName);
-    const [obuf, ubuf] = await Promise.all([Spc.orig.file.arrayBuffer(), Spc.upd.file.arrayBuffer()]);
+    const [obuf, ubuf] = await Promise.all([
+      new Response(Spc.orig.file).arrayBuffer(),
+      new Response(Spc.upd.file).arrayBuffer()
+    ]);
     console.log('[SlipSheet] Spec buffers loaded, sizes:', obuf.byteLength, ubuf.byteLength);
     console.log('[SlipSheet] Loading spec PDFs with pdf-lib…');
     const [origP, updP] = await Promise.all([PDFDocument.load(obuf.slice(0)), PDFDocument.load(ubuf.slice(0))]);
@@ -923,7 +933,7 @@ function spcExport(fmt) {
 
 window.resetSpec = function() {
   Spc.orig = Spc.upd = null; Spc.sections = []; Spc.actions = []; Spc.selIdx = -1; Spc.stage = 'upload';
-  $id('spcUpload').classList.remove('hidden'); $id('spcReview').classList.remove('active');
+  $id('spcUpload').classList.remove('hidden'); $id('spcReview').classList.remove('active'); $id('spcErrorBanner').style.display='none';
   $id('bottomBarSpc').classList.remove('active'); $id('resetBtnSpc').style.display = 'none'; $id('spcDlBtn').style.display = 'none';
   $id('socard').classList.remove('ready'); $id('sucard').classList.remove('ready');
   $id('sofi').value = ''; $id('sufi').value = '';
