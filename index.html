@@ -984,12 +984,12 @@ async function drwGenerateByteLevel(origSize, updSize) {
     const npM = {};
 
     fakeProg('Byte-level: Reading original PDF…', 15);
-    const origRaw = await Drw.orig.file.arrayBuffer();
-    console.log('[SlipSheet] Byte-level: original size',(origRaw.byteLength/1024/1024).toFixed(1),'MB');
+    let origRawBuf = await Drw.orig.file.arrayBuffer();
+    console.log('[SlipSheet] Byte-level: original size',(origRawBuf.byteLength/1024/1024).toFixed(1),'MB');
     
     prog('Byte-level: Parsing PDF structure…', 25);
     await sleep(50);
-    const pdfData = parsePDFByteSections(origRaw);
+    const pdfData = parsePDFByteSections(origRawBuf);
     const origPages = findPageObjects(pdfData);
     console.log('[SlipSheet] Byte-level: found',origPages.length,'pages via byte scan');
     
@@ -1020,9 +1020,9 @@ async function drwGenerateByteLevel(origSize, updSize) {
     const needsUpdate = replacements.length > 0 || insertions.length > 0;
     if (needsUpdate) {
       prog('Byte-level: Reading update PDF…', 35);
-      const updRaw = await Drw.upd.file.arrayBuffer();
-      console.log('[SlipSheet] Byte-level: update size',(updRaw.byteLength/1024/1024).toFixed(1),'MB');
-      updData = parsePDFByteSections(updRaw);
+      let updRawBuf = await Drw.upd.file.arrayBuffer();
+      console.log('[SlipSheet] Byte-level: update size',(updRawBuf.byteLength/1024/1024).toFixed(1),'MB');
+      updData = parsePDFByteSections(updRawBuf);
       updPages = findPageObjects(updData);
     }
 
@@ -1124,8 +1124,14 @@ async function drwGenerateByteLevel(origSize, updSize) {
     xref += `trailer\n<< /Size ${nextObjNum} /Root ${catalogNum} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
     outputParts.push(new TextEncoder().encode(xref));
     
+    // Release raw input buffers before final assembly
+    origRawBuf = null; updRawBuf = null;
+    await sleep(100); // Let GC breathe
+    
     // Final assembly
     const totalLen = outputParts.reduce((acc, p) => acc + p.length, 0);
+    prog('Byte-level: Assembling final PDF ('+(totalLen/1024/1024).toFixed(1)+'MB)…', 95);
+    await sleep(50);
     const finalBuf = new Uint8Array(totalLen);
     let offset = 0;
     for (const part of outputParts) {
