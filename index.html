@@ -439,7 +439,7 @@ async function drwRenderPreview(idx) {
     // Insert: just show the new sheet
     area.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-tertiary);font-size:18px">Loading preview…</div>';
     try {
-      if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await new Response(Drw.upd.file).arrayBuffer() }).promise;
+      if (!Drw.jsDocs.upd) { const u=URL.createObjectURL(Drw.upd.file); Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await fetch(u).then(r=>r.arrayBuffer()) }).promise; URL.revokeObjectURL(u); }
       const uc = await drwRenderPage(await Drw.jsDocs.upd.getPage(a.updatePage));
       area.innerHTML = `<div class="pv-slot" style="max-width:60%"><span class="pv-lbl">New Sheet · ${escHtml(a.label)}</span>${uc?'<canvas></canvas>':'<div style="padding:21px;color:var(--text-tertiary);font-size:15px">Preview unavailable</div>'}</div>`;
       drwCopyCv(area.querySelector('canvas'), uc);
@@ -469,7 +469,7 @@ window.drwSideBySide = async function(idx) {
   cmpArea.innerHTML = '<div style="color:var(--text-tertiary);font-size:15px;padding:30px">Loading side-by-side…</div>';
   try {
     if (!Drw.jsDocs.orig) Drw.jsDocs.orig = await pdfjsLib.getDocument({ data: await Drw.orig.file.arrayBuffer() }).promise;
-    if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await new Response(Drw.upd.file).arrayBuffer() }).promise;
+    if (!Drw.jsDocs.upd) { const u=URL.createObjectURL(Drw.upd.file); Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await fetch(u).then(r=>r.arrayBuffer()) }).promise; URL.revokeObjectURL(u); }
     const [op, up] = await Promise.all([Drw.jsDocs.orig.getPage(a.origPage), Drw.jsDocs.upd.getPage(a.updatePage)]);
     const [oc, uc] = await Promise.all([drwRenderPage(op), drwRenderPage(up)]);
     cmpArea.innerHTML = `<div class="pv-slot"><span class="pv-lbl">Original · Page ${a.origPage}</span></div><div class="pv-slot"><span class="pv-lbl">Updated · Page ${a.updatePage}</span></div>`;
@@ -489,7 +489,7 @@ window.drwDoOverlay = async function(idx) {
 
   try {
     if (!Drw.jsDocs.orig) Drw.jsDocs.orig = await pdfjsLib.getDocument({ data: await Drw.orig.file.arrayBuffer() }).promise;
-    if (!Drw.jsDocs.upd) Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await new Response(Drw.upd.file).arrayBuffer() }).promise;
+    if (!Drw.jsDocs.upd) { const u=URL.createObjectURL(Drw.upd.file); Drw.jsDocs.upd = await pdfjsLib.getDocument({ data: await fetch(u).then(r=>r.arrayBuffer()) }).promise; URL.revokeObjectURL(u); }
     const [op, up] = await Promise.all([Drw.jsDocs.orig.getPage(a.origPage), Drw.jsDocs.upd.getPage(a.updatePage)]);
 
     // Render both at same scale (fit to container)
@@ -559,64 +559,55 @@ window.drwDoOverlay = async function(idx) {
     $id('diffStatus').textContent = 'Drawing overlays…';
     await sleep(40);
 
-    // Draw red diff overlay with circular detection
-    if (diffCount > 0) {
-      const diffCanvas = document.createElement('canvas'); diffCanvas.width = w; diffCanvas.height = h;
-      const dctx = diffCanvas.getContext('2d');
-      const diffImg = dctx.createImageData(w, h);
-      
-      for (let i = 0; i < totalPixels; i++) {
-        if (diffMask[i]) {
-          const pi = i * 4;
-          // Semitransparent red overlay
-          diffImg.data[pi] = 255;
-          diffImg.data[pi+1] = 40;
-          diffImg.data[pi+2] = 40;
-          diffImg.data[pi+3] = 160;
-        }
-      }
-      dctx.putImageData(diffImg, 0, 0);
-      octx.drawImage(diffCanvas, 0, 0);
-    }
+    // Diff overlay drawn after cluster filtering below
 
-    // Draw circles around diff clusters (simplified: just draw small dots at diff points)
-    octx.strokeStyle = '#ff0000';
-    octx.lineWidth = 2;
-    octx.globalAlpha = 0.7;
-    
-    // Find diff clusters by sampling every 4th pixel
+    // Remove tiny isolated diffs (e.g., 1-pixel text shifts, anti-aliasing noise)
+    // Flood fill to find connected diff clusters
     const visited = new Uint8Array(totalPixels);
-    for (let y = 0; y < h; y += 8) {
-      for (let x = 0; x < w; x += 8) {
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
         const idx = y * w + x;
         if (diffMask[idx] && !visited[idx]) {
-          // Flood fill to find cluster bounds
-          let minX = x, maxX = x, minY = y, maxY = y, count = 0;
+          // Flood fill to count cluster size
+          const clusterPixels = [];
           const stack = [[x, y]];
           visited[idx] = 1;
-          while (stack.length && count < 2000) {
+          while (stack.length && clusterPixels.length < 5000) {
             const [cx, cy] = stack.pop();
-            minX = Math.min(minX, cx); maxX = Math.max(maxX, cx);
-            minY = Math.min(minY, cy); maxY = Math.max(maxY, cy);
-            count++;
-            for (const [nx, ny] of [[cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1],[cx-1,cy-1],[cx+1,cy-1],[cx-1,cy+1],[cx+1,cy+1]]) {
+            clusterPixels.push([cx, cy]);
+            for (const [nx, ny] of [[cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1]]) {
               if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
                 const ni = ny * w + nx;
                 if (diffMask[ni] && !visited[ni]) { visited[ni] = 1; stack.push([nx, ny]); }
               }
             }
           }
-          if (count > 4) {
-            const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-            const r = Math.max((maxX - minX) / 2, (maxY - minY) / 2) + 4;
-            octx.beginPath();
-            octx.arc(cx, cy, Math.min(r, 80), 0, Math.PI * 2);
-            octx.stroke();
+          // MIN_CLUSTER: only keep clusters with 20+ changed pixels
+          if (clusterPixels.length < 20) {
+            for (const [px, py] of clusterPixels) diffMask[py * w + px] = 0;
           }
         }
       }
     }
-    octx.globalAlpha = 1.0;
+
+    // Re-draw diff overlay with only large-enough clusters
+    const diffCanvas = document.createElement('canvas'); diffCanvas.width = w; diffCanvas.height = h;
+    const dctx = diffCanvas.getContext('2d');
+    const diffImg = dctx.createImageData(w, h);
+    let finalDiffCount = 0;
+    for (let i = 0; i < totalPixels; i++) {
+      if (diffMask[i]) {
+        finalDiffCount++;
+        const pi = i * 4;
+        diffImg.data[pi] = 255;
+        diffImg.data[pi+1] = 40;
+        diffImg.data[pi+2] = 40;
+        diffImg.data[pi+3] = 180;
+      }
+    }
+    dctx.putImageData(diffImg, 0, 0);
+    octx.drawImage(diffCanvas, 0, 0);
+    diffCount = finalDiffCount;
 
     $id('diffProg').style.width = '100%';
     const pct = (diffCount / totalPixels * 100).toFixed(1);
@@ -624,7 +615,7 @@ window.drwDoOverlay = async function(idx) {
 
     cmpArea.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:9px;width:100%;overflow:auto">
       <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;justify-content:center">
-        <span style="display:flex;align-items:center;gap:5px;font-size:14px"><span style="width:14px;height:14px;border-radius:3px;background:#ff0000;display:inline-block;border:2px solid #cc0000"></span> <strong>Changed (${pct}%)</strong> — red overlay + circled</span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:14px"><span style="width:14px;height:14px;border-radius:3px;background:#ff0000;display:inline-block;border:2px solid #cc0000"></span> <strong>Changed (${pct}%)</strong> — red overlay</span>
         <span style="display:flex;align-items:center;gap:5px;font-size:14px;color:var(--text-tertiary)"><span style="width:14px;height:14px;border-radius:3px;background:#aaa;display:inline-block"></span> Unchanged — greyscale</span>
         <span style="font-size:14px;color:var(--text-secondary)">${diffCount.toLocaleString()} diff pixels / ${totalPixels.toLocaleString()} total</span>
       </div>
@@ -644,10 +635,12 @@ async function drwGeneratePDF() {
   prog('Loading PDFs…', 5); await sleep(100);
   try {
     console.log('[SlipSheet] Loading file buffers…', Drw.orig.fileName, Drw.upd.fileName);
+    const u1 = URL.createObjectURL(Drw.orig.file), u2 = URL.createObjectURL(Drw.upd.file);
     const [obuf, ubuf] = await Promise.all([
-      new Response(Drw.orig.file).arrayBuffer(),
-      new Response(Drw.upd.file).arrayBuffer()
+      fetch(u1).then(r => r.arrayBuffer()),
+      fetch(u2).then(r => r.arrayBuffer())
     ]);
+    URL.revokeObjectURL(u1); URL.revokeObjectURL(u2);
     console.log('[SlipSheet] Buffers loaded, sizes:', obuf.byteLength, ubuf.byteLength);
     console.log('[SlipSheet] Loading PDFs with pdf-lib…');
     const [origP, updP] = await Promise.all([
@@ -895,10 +888,12 @@ async function spcGeneratePDF() {
   prog('Loading specification PDFs…', 5);
   try {
     console.log('[SlipSheet] Loading spec file buffers…', Spc.orig.fileName, Spc.upd.fileName);
+    const u1 = URL.createObjectURL(Spc.orig.file), u2 = URL.createObjectURL(Spc.upd.file);
     const [obuf, ubuf] = await Promise.all([
-      new Response(Spc.orig.file).arrayBuffer(),
-      new Response(Spc.upd.file).arrayBuffer()
+      fetch(u1).then(r => r.arrayBuffer()),
+      fetch(u2).then(r => r.arrayBuffer())
     ]);
+    URL.revokeObjectURL(u1); URL.revokeObjectURL(u2);
     console.log('[SlipSheet] Spec buffers loaded, sizes:', obuf.byteLength, ubuf.byteLength);
     console.log('[SlipSheet] Loading spec PDFs with pdf-lib…');
     const [origP, updP] = await Promise.all([PDFDocument.load(obuf.slice(0)), PDFDocument.load(ubuf.slice(0))]);
