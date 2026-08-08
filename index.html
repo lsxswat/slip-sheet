@@ -284,7 +284,19 @@ const $id = id => document.getElementById(id);
 function toast(msg, dur) { const t = $id('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), dur||3300); }
 function prog(msg, pct) { $id('progText').textContent = msg; $id('progFill').style.width = pct + '%'; $id('progOverlay').classList.add('active'); }
 function prog2(msg, pct) { if(pct!==undefined){ $id('progTrack2').style.display=''; $id('progFill2').style.width = pct+'%'; } else { $id('progTrack2').style.display='none'; } if(msg) $id('progText').textContent = msg; }
-function progOff() { $id('progOverlay').classList.remove('active'); $id('progTrack2').style.display='none'; }
+function progOff() { clearInterval(window._fpTimer); $id('progOverlay').classList.remove('active'); $id('progTrack2').style.display='none'; }
+function fakeProg(msg, endPct) {
+  clearInterval(window._fpTimer);
+  $id('progText').textContent = msg;
+  $id('progOverlay').classList.add('active');
+  let cur = parseFloat($id('progFill').style.width) || 0;
+  const target = endPct || 85;
+  window._fpTimer = setInterval(() => {
+    cur += (target - cur) * 0.06;
+    if (Math.abs(target - cur) < 0.4) { cur = target; clearInterval(window._fpTimer); }
+    $id('progFill').style.width = cur + '%';
+  }, 70);
+}
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function download(blob, name) { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = name; a.style.display='none'; document.body.appendChild(a); a.click(); setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(u);},200); }
@@ -362,7 +374,7 @@ function drwSetupCard(cardId, inputId, type) {
 
 async function drwLoadFile(file, type) {
   const card = $id(type==='original'?'ocard':'ucard');
-  prog('Reading PDF…', 30);
+  fakeProg('Reading PDF…', 80);
   try {
     const parsed = await drwParsePDF(file);
     if (type === 'original') {
@@ -395,7 +407,7 @@ function drwRenderBmTree(bms, parent, depth=0) {
 async function drwRunAnalysis() {
   if (!Drw.orig || !Drw.upd) return;
   Drw.stage = 'analyze'; setStage('analyze');
-  prog('Matching sheets by page label…', 40); await sleep(200);
+  fakeProg('Matching sheets by page label…', 70); await sleep(200);
   const ol = Drw.orig.labels, ul = Drw.upd.labels;
   const origOrder = [...ol.entries()].sort((a,b) => a[1].pageNum - b[1].pageNum);
   const actions = [];
@@ -683,7 +695,7 @@ async function drwGeneratePDF() {
   Drw.stage = 'export'; setStage('export');
   _lastBlob=null; _lastName='';
   $id('drwErrorBanner').style.display='none';
-  prog('Step 1/3: Loading original PDF…', 5); await sleep(100);
+  fakeProg('Step 1/3: Loading original PDF…', 25); await sleep(100);
   try {
     const replacements = Drw.actions.filter(a => a.type==='replace');
     const insertions = Drw.actions.filter(a => a.type==='insert');
@@ -696,6 +708,7 @@ async function drwGeneratePDF() {
     const u1 = URL.createObjectURL(Drw.orig.file);
     let origBuf = await fetch(u1).then(r => r.arrayBuffer());
     URL.revokeObjectURL(u1);
+    clearInterval(window._fpTimer); $id('progFill').style.width = '25%';
     const origP = await safeLoadPDF(origBuf,'Original PDF'); origBuf = null;
     const newP = await PDFDocument.create();
     let cur = 0;
@@ -874,7 +887,7 @@ function spcSetupCard(cardId, inputId, type) {
 
 async function spcLoadFile(file, type) {
   const card = $id(type==='original'?'socard':'sucard');
-  prog('Reading specification PDF…', 30);
+  fakeProg('Reading specification PDF…', 80);
   try {
     const parsed = await spcExtractSections(file);
     if (type === 'original') {
@@ -907,7 +920,7 @@ function spcRenderSectionTree(sections, parent) {
 async function spcRunAnalysis() {
   if (!Spc.orig || !Spc.upd) return;
   Spc.stage = 'analyze'; setStage('analyze');
-  prog('Matching sections by number…', 40); await sleep(200);
+  fakeProg('Matching sections by number…', 70); await sleep(200);
 
   const origSecs = Spc.orig.sections;
   const updSecs = Spc.upd.sections;
