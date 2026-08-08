@@ -273,8 +273,8 @@ function parsePDFByteSections(buf) {
   const dv = new DataView(buf);
   const decoder = new TextDecoder('latin1');
   // Read last 1KB for trailer/xref
-  const tailSize = Math.min(2048, buf.byteLength);
-  const tailBytes = new Uint8Array(buf.slice(buf.byteLength - tailSize));
+  const tailSize = Math.min(4096, buf.byteLength);
+  const tailBytes = new Uint8Array(buf, buf.byteLength - tailSize, tailSize);
   const tail = decoder.decode(tailBytes);
   
   // Find startxref
@@ -332,11 +332,12 @@ function getObjectByteRange(pdf, objNum) {
   // Scan forward from offset to find "endobj"
   let end = off;
   const max = Math.min(off + 50000, pdf.buf.byteLength);
+  const view = new Uint8Array(pdf.buf);
   for (let i = off; i < max - 7; i++) {
-    if (pdf.decoder.decode(new Uint8Array(pdf.buf.slice(i, i + 7))) === '\nendobj') {
+    if (pdf.decoder.decode(view.subarray(i, i + 7)) === '\nendobj') {
       end = i + 7; break;
     }
-    if (pdf.decoder.decode(new Uint8Array(pdf.buf.slice(i, i + 6))) === 'endobj') {
+    if (pdf.decoder.decode(view.subarray(i, i + 6)) === 'endobj') {
       end = i + 6; break;
     }
   }
@@ -351,7 +352,7 @@ function findPageObjects(pdf) {
   for (const [objNum, off] of Object.entries(pdf.offsets)) {
     const range = getObjectByteRange(pdf, parseInt(objNum));
     if (!range) continue;
-    const objBytes = new Uint8Array(pdf.buf.slice(range.start, range.end));
+    const objBytes = new Uint8Array(pdf.buf, range.start, range.end - range.start);
     const str = decoder.decode(objBytes);
     if (str.includes('/Type') && str.includes('/Page') && !str.includes('/Pages')) {
       pages.push({ objNum: parseInt(objNum), offset: off });
@@ -980,10 +981,9 @@ async function drwGenerateByteLevel(origSize, updSize) {
     const repSet = new Set(replacements.map(a => a.origPage));
     const npM = {};
 
-    fakeProg('Byte-level: Loading raw PDF data…', 15);
-    const u1 = URL.createObjectURL(Drw.orig.file);
-    const origRaw = await fetch(u1).then(r => r.arrayBuffer());
-    URL.revokeObjectURL(u1);
+    fakeProg('Byte-level: Reading original PDF…', 15);
+    const origRaw = await Drw.orig.file.arrayBuffer();
+    console.log('[SlipSheet] Byte-level: original size',(origRaw.byteLength/1024/1024).toFixed(1),'MB');
     
     prog('Byte-level: Parsing PDF structure…', 25);
     await sleep(50);
@@ -1017,10 +1017,9 @@ async function drwGenerateByteLevel(origSize, updSize) {
     let updData = null, updPages = null;
     const needsUpdate = replacements.length > 0 || insertions.length > 0;
     if (needsUpdate) {
-      prog('Byte-level: Loading update PDF…', 35);
-      const u2 = URL.createObjectURL(Drw.upd.file);
-      const updRaw = await fetch(u2).then(r => r.arrayBuffer());
-      URL.revokeObjectURL(u2);
+      prog('Byte-level: Reading update PDF…', 35);
+      const updRaw = await Drw.upd.file.arrayBuffer();
+      console.log('[SlipSheet] Byte-level: update size',(updRaw.byteLength/1024/1024).toFixed(1),'MB');
       updData = parsePDFByteSections(updRaw);
       updPages = findPageObjects(updData);
     }
@@ -1046,7 +1045,7 @@ async function drwGenerateByteLevel(origSize, updSize) {
         processedOld.add(key);
         const range = getObjectByteRange(data, n);
         if (!range) continue;
-        const rawBytes = new Uint8Array(data.buf.slice(range.start, range.end));
+        const rawBytes = new Uint8Array(data.buf, range.start, range.end - range.start);
         let objStr = new TextDecoder('latin1').decode(rawBytes);
         // Don't renumber yet - just store
         objectMap[key] = nextObjNum;
