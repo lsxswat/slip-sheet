@@ -657,9 +657,9 @@ async function drwGeneratePDF() {
     // === PHASE 1: Load ONLY original PDF, build skeleton ===
     console.log('[SlipSheet] Phase 1: loading original PDF only');
     const u1 = URL.createObjectURL(Drw.orig.file);
-    const origBuf = await fetch(u1).then(r => r.arrayBuffer());
+    let origBuf = await fetch(u1).then(r => r.arrayBuffer());
     URL.revokeObjectURL(u1);
-    const origP = await safeLoadPDF(origBuf, 'Original PDF');
+    const origP = await safeLoadPDF(origBuf,'Original PDF'); origBuf = null;
     const newP = await PDFDocument.create();
     let cur = 0;
     const ins = [...insertions].sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
@@ -683,14 +683,14 @@ async function drwGeneratePDF() {
     }
     // Release original from memory now
     // Original PDF released from memory
-    console.log('[SlipSheet] Original PDF released, loading update PDF');
+    console.log('[SlipSheet] Original PDF released, loading update PDF'); await sleep(200); // let GC breathe
 
     // === PHASE 2: Load update PDF, apply replacements ===
     prog('Step 3/3: Applying updates…', 40); await sleep(100);
     const u2 = URL.createObjectURL(Drw.upd.file);
-    const updBuf = await fetch(u2).then(r => r.arrayBuffer());
+    let updBuf = await fetch(u2).then(r => r.arrayBuffer());
     URL.revokeObjectURL(u2);
-    const updP = await safeLoadPDF(updBuf, 'Update PDF');
+    const updP = await safeLoadPDF(updBuf, 'Update PDF'); updBuf = null;
     const replSorted = [...replacements].sort((a,b) => a.newPage - b.newPage);
     const allIns = [...insertions].sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
 
@@ -962,7 +962,7 @@ async function spcGeneratePDF() {
     URL.revokeObjectURL(u1); URL.revokeObjectURL(u2);
     console.log('[SlipSheet] Spec buffers loaded, sizes:', obuf.byteLength, ubuf.byteLength);
     console.log('[SlipSheet] Loading spec PDFs with pdf-lib…');
-    const [origP, updP] = await Promise.all([safeLoadPDF(obuf.slice(0),'Original Spec'), safeLoadPDF(ubuf.slice(0),'Updated Spec')]);
+    const [origP, updP] = await Promise.all([safeLoadPDF(obuf,'Original Spec'), safeLoadPDF(ubuf,'Updated Spec')]);
     console.log('[SlipSheet] Spec PDFs loaded successfully');
     prog('Building page order…', 20); await sleep(100);
     const newP = await PDFDocument.create(); const origN = origP.getPageCount();
