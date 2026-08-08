@@ -883,15 +883,15 @@ async function drwGeneratePDF() {
   $id('drwErrorBanner').style.display='none';
   fakeProg('Step 1/3: Loading original PDF…', 25); await sleep(100);
   try {
-    const replacements = Drw.actions.filter(a => a.type==='replace');
-    const insertions = Drw.actions.filter(a => a.type==='insert');
-    const origN = Drw.orig.pageCount, totalOps = origN + insertions.length;
-    const repSet = new Set(replacements.map(a => a.origPage));
-    const npM = {};
+    let replacements = Drw.actions.filter(a => a.type==='replace');
+    let insertions = Drw.actions.filter(a => a.type==='insert');
+    let origN = Drw.orig.pageCount, totalOps = origN + insertions.length;
+    let repSet = new Set(replacements.map(a => a.origPage));
+    let npM = {};
 
     // === PHASE 1: Load ONLY original PDF, build skeleton ===
     console.log('[SlipSheet] Phase 1: loading original PDF only');
-    const u1 = URL.createObjectURL(Drw.orig.file);
+    let u1 = URL.createObjectURL(Drw.orig.file);
     let origBuf = await fetch(u1).then(r => r.arrayBuffer());
     URL.revokeObjectURL(u1);
     clearInterval(window._fpTimer); $id('progFill').style.width = '25%';
@@ -901,9 +901,9 @@ async function drwGeneratePDF() {
       throw e;
     }
     origBuf = null;
-    const newP = await PDFDocument.create();
+    let newP = await PDFDocument.create();
     let cur = 0;
-    const ins = [...insertions].sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
+    let ins = [...insertions].sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
     let insI = 0;
     for (let i = 0; i < origN; i++) {
       prog(`Step 2/3: Skeleton page ${cur+1}/${totalOps}`,8 + Math.floor(cur / totalOps * 28)); prog2('',  8 + Math.floor(cur / totalOps * 28));
@@ -912,14 +912,14 @@ async function drwGeneratePDF() {
         const a = ins[insI]; const [pp] = await newP.copyPages(origP, [0]);
         newP.addPage(pp); cur++; npM[a.label] = cur; insI++;
       }
-      const [cp] = await newP.copyPages(origP, [i]); newP.addPage(cp); cur++;
+      let [cp] = await newP.copyPages(origP, [i]); newP.addPage(cp); cur++;
       if (repSet.has(i + 1)) {
         const a = Drw.actions.find(ax => ax.type==='replace' && ax.origPage === i + 1);
         if (a) npM[a.label] = cur;
       }
     }
     while (insI < ins.length) {
-      const a = ins[insI]; const [pp] = await newP.copyPages(origP, [0]);
+      let a = ins[insI]; const [pp] = await newP.copyPages(origP, [0]);
       newP.addPage(pp); cur++; npM[a.label] = cur; insI++;
     }
     // Release original from memory now
@@ -928,17 +928,17 @@ async function drwGeneratePDF() {
 
     // === PHASE 2: Load update PDF, apply replacements ===
     prog('Step 3/3: Applying updates…', 40); await sleep(100);
-    const u2 = URL.createObjectURL(Drw.upd.file);
+    let u2 = URL.createObjectURL(Drw.upd.file);
     let updBuf = await fetch(u2).then(r => r.arrayBuffer());
     URL.revokeObjectURL(u2);
-    const updP = await safeLoadPDF(updBuf, 'Update PDF'); updBuf = null;
-    const replSorted = [...replacements].sort((a,b) => a.newPage - b.newPage);
-    const allIns = [...insertions].sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
+    let updP = await safeLoadPDF(updBuf, 'Update PDF'); updBuf = null;
+    let replSorted = [...replacements].sort((a,b) => a.newPage - b.newPage);
+    let allIns = [...insertions].sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
 
     // Replace pages (work backwards to keep indices stable)
     let repCount = 0, repTotal = replSorted.length;
     for (let ri = replSorted.length - 1; ri >= 0; ri--) {
-      const a = replSorted[ri]; repCount++;
+      let a = replSorted[ri]; repCount++;
       if (repCount % 10 === 0) { prog(`Step 3/3: Replacing ${repCount}/${repTotal}`, 42 + Math.floor(repCount/repTotal*25)); await sleep(0); }
       try {
         const targetIdx = (npM[a.label] || a.newPage) - 1;
@@ -952,7 +952,7 @@ async function drwGeneratePDF() {
 
     // Insert new pages
     for (let ii = 0; ii < allIns.length; ii++) {
-      const a = allIns[ii];
+      let a = allIns[ii];
       if (ii % 10 === 0) { prog(`Step 3/3: Inserting ${ii+1}/${allIns.length}`, 70 + Math.floor(ii/allIns.length*20)); await sleep(0); }
       try {
         const targetIdx = (npM[a.label] || a.newPos || a.newPage) - 1;
@@ -968,7 +968,7 @@ async function drwGeneratePDF() {
     // Release source PDFs before save to reduce peak memory
     origP = null; updP = null;
     await sleep(50);
-    const bytes = await newP.save();
+    let bytes = await newP.save();
     _lastName = Drw.orig.fileName.replace(/\.pdf$/i,'')+'_Updated.pdf';
     _lastBlob = new Blob([bytes],{type:'application/pdf'});
     download(_lastBlob, _lastName);
@@ -981,10 +981,10 @@ async function drwGeneratePDF() {
 
 async function drwGenerateByteLevel(origSize, updSize) {
   try {
-    const replacements = Drw.actions.filter(a => a.type==='replace');
-    const insertions = Drw.actions.filter(a => a.type==='insert');
-    const repSet = new Set(replacements.map(a => a.origPage));
-    const npM = {};
+    let replacements = Drw.actions.filter(a => a.type==='replace');
+    let insertions = Drw.actions.filter(a => a.type==='insert');
+    let repSet = new Set(replacements.map(a => a.origPage));
+    let npM = {};
 
     fakeProg('Byte-level: Reading original PDF…', 15);
     let origRawBuf = await Drw.orig.file.arrayBuffer();
@@ -993,19 +993,19 @@ async function drwGenerateByteLevel(origSize, updSize) {
     prog('Byte-level: Parsing PDF structure…', 25);
     await sleep(50);
     let pdfData = parsePDFByteSections(origRawBuf);
-    const origPages = findPageObjects(pdfData);
+    let origPages = findPageObjects(pdfData);
     console.log('[SlipSheet] Byte-level: found',origPages.length,'pages via byte scan');
     
     // Build final page order
-    const finalOrder = [];
+    let finalOrder = [];
     let insI = 0;
-    const ins = [...insertions].sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
+    let ins = [...insertions].sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
     for (let i = 0; i < origPages.length; i++) {
       while (insI < ins.length && ins[insI].newPos <= finalOrder.length + 1) {
         finalOrder.push({ type: 'insert', action: ins[insI], pageIdx: finalOrder.length });
         insI++;
       }
-      const isReplace = repSet.has(i + 1);
+      let isReplace = repSet.has(i + 1);
       if (isReplace) {
         const a = replacements.find(ax => ax.origPage === i + 1);
         finalOrder.push({ type: 'replace', action: a, origPageIdx: i });
@@ -1020,7 +1020,7 @@ async function drwGenerateByteLevel(origSize, updSize) {
 
     // Load update if needed
     let updData = null, updPages = null;
-    const needsUpdate = replacements.length > 0 || insertions.length > 0;
+    let needsUpdate = replacements.length > 0 || insertions.length > 0;
     if (needsUpdate) {
       prog('Byte-level: Reading update PDF…', 35);
       let updRawBuf = await Drw.upd.file.arrayBuffer();
@@ -1030,20 +1030,20 @@ async function drwGenerateByteLevel(origSize, updSize) {
     }
 
     // Build output byte by byte
-    const totalP = finalOrder.length;
-    const outputParts = [];
+    let totalP = finalOrder.length;
+    let outputParts = [];
     
     // PDF header
     outputParts.push(new TextEncoder().encode('%PDF-1.7\n'));
     
     // Collect all needed objects with new numbering
-    const objectMap = {}; // oldKey -> newNum
+    let objectMap = {}; // oldKey -> newNum
     let nextObjNum = 1;
-    const objectBytes = []; // {bytes, newNum}
-    const processedOld = new Set();
+    let objectBytes = []; // {bytes, newNum}
+    let processedOld = new Set();
     
     function addObjectTree(data, objNum, sourceLabel) {
-      const tree = collectObjectTree(data, objNum);
+      let tree = collectObjectTree(data, objNum);
       for (const n of tree) {
         const key = sourceLabel + ':' + n;
         if (processedOld.has(key)) continue;
@@ -1060,7 +1060,7 @@ async function drwGenerateByteLevel(origSize, updSize) {
     }
     
     // Page tree root
-    const pageTreeKids = [];
+    let pageTreeKids = [];
     
     for (let pi = 0; pi < totalP; pi++) {
       prog(`Byte-level: Page ${pi+1}/${totalP}`, 40 + Math.floor(pi/totalP*50));
@@ -1068,7 +1068,7 @@ async function drwGenerateByteLevel(origSize, updSize) {
       $id('progTrack2').setAttribute('data-label', `pg ${pi+1}`);
       if (pi % 5 === 0) await sleep(0);
       
-      const entry = finalOrder[pi];
+      let entry = finalOrder[pi];
       if (entry.type === 'keep') {
         const origPage = origPages[entry.origPageIdx];
         if (origPage) {
@@ -1095,20 +1095,20 @@ async function drwGenerateByteLevel(origSize, updSize) {
     await sleep(100);
     
     // Build page tree object
-    const kidsRef = pageTreeKids.map(k => `${k} 0 R`).join(' ');
-    const pageTreeObj = `${nextObjNum} 0 obj\n<< /Type /Pages /Kids [${kidsRef}] /Count ${pageTreeKids.length} >>\nendobj\n`;
+    let kidsRef = pageTreeKids.map(k => `${k} 0 R`).join(' ');
+    let pageTreeObj = `${nextObjNum} 0 obj\n<< /Type /Pages /Kids [${kidsRef}] /Count ${pageTreeKids.length} >>\nendobj\n`;
     objectBytes.push({ bytes: new TextEncoder().encode(pageTreeObj), newNum: nextObjNum, oldNum: 0, source: 'generated', key: 'pagetree' });
     nextObjNum++;
     
     // Catalog object
-    const catalogObj = `${nextObjNum} 0 obj\n<< /Type /Catalog /Pages ${nextObjNum-1} 0 R >>\nendobj\n`;
+    let catalogObj = `${nextObjNum} 0 obj\n<< /Type /Catalog /Pages ${nextObjNum-1} 0 R >>\nendobj\n`;
     objectBytes.push({ bytes: new TextEncoder().encode(catalogObj), newNum: nextObjNum, oldNum: 0, source: 'generated', key: 'catalog' });
-    const catalogNum = nextObjNum;
+    let catalogNum = nextObjNum;
     nextObjNum++;
     
     // Write all objects with renumbered references
     prog('Byte-level: Writing output…', 92);
-    const offsets = {};
+    let offsets = {};
     for (const ob of objectBytes) {
       offsets[ob.newNum] = outputParts.reduce((acc, p) => acc + p.length, 0);
       let str = new TextDecoder('latin1').decode(ob.bytes);
@@ -1121,19 +1121,19 @@ async function drwGenerateByteLevel(origSize, updSize) {
     }
     
     // Build xref table
-    const xrefOffset = outputParts.reduce((acc, p) => acc + p.length, 0);
+    let xrefOffset = outputParts.reduce((acc, p) => acc + p.length, 0);
     let xref = `xref\n0 ${nextObjNum}\n`;
     xref += '0000000000 65535 f \n';
     for (let i = 1; i < nextObjNum; i++) {
-      const off = offsets[i] || 0;
+      let off = offsets[i] || 0;
       xref += String(off).padStart(10, '0') + ' 00000 n \n';
     }
     xref += `trailer\n<< /Size ${nextObjNum} /Root ${catalogNum} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
     outputParts.push(new TextEncoder().encode(xref));
     
     // Stream directly to disk using File System Access API
-    const totalLen = outputParts.reduce((acc, p) => acc + p.length, 0);
-    const outName = Drw.orig.fileName.replace(/\.pdf$/i,'')+'_Updated.pdf';
+    let totalLen = outputParts.reduce((acc, p) => acc + p.length, 0);
+    let outName = Drw.orig.fileName.replace(/\.pdf$/i,'')+'_Updated.pdf';
     let saved = false;
 
     if (window.showSaveFilePicker) {
