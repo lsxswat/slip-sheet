@@ -506,11 +506,24 @@ window.drwSideBySide = async function(idx) {
     
     // Zoom support for side-by-side
     const sbsContainers = cmpArea.querySelectorAll('.pv-slot');
-    let sbsZoom = 1;
-    function updateSbsZoom() { sbsContainers.forEach(c => { c.style.transform = `scale(${sbsZoom})`; c.style.transformOrigin = 'top center'; c.style.transition = 'transform 150ms ease'; }); }
+    let sbsZoom = 1, sbsPanX=0, sbsPanY=0, sbsPanning=false, sbsPStartX, sbsPStartY;
+    function updateSbsZoom() { sbsContainers.forEach(c => { c.style.transform = `translate(${sbsPanX}px,${sbsPanY}px) scale(${sbsZoom})`; c.style.transformOrigin = 'top center'; c.style.transition = 'transform 150ms ease'; }); }
+    cmpArea.addEventListener('mousedown', (ev) => {
+      if (ev.button !== 0) return;
+      sbsPanning = true; sbsPStartX = ev.clientX - sbsPanX; sbsPStartY = ev.clientY - sbsPanY;
+      cmpArea.style.cursor = 'grabbing'; ev.preventDefault();
+    });
+    window.addEventListener('mousemove', (ev) => {
+      if (!sbsPanning) return;
+      sbsPanX = ev.clientX - sbsPStartX; sbsPanY = ev.clientY - sbsPStartY;
+      updateSbsZoom();
+    });
+    window.addEventListener('mouseup', () => { sbsPanning = false; cmpArea.style.cursor = 'grab'; });
+    cmpArea.style.cursor = 'grab';
+    cmpArea.style.overflow = 'hidden';
     cmpArea.addEventListener('wheel', (ev) => {
       ev.preventDefault();
-      sbsZoom = Math.max(0.2, Math.min(5, sbsZoom + (ev.deltaY > 0 ? -0.15 : 0.15)));
+      sbsZoom = Math.min(5, sbsZoom + (ev.deltaY > 0 ? -0.15 : 0.15));
       updateSbsZoom();
     }, {passive: false});
   } catch(e) { cmpArea.innerHTML = `<div class="pv-empty"><div>⚠️ Error</div><div style="font-size:15px">${escHtml(e.message)}</div></div>`; }
@@ -669,7 +682,22 @@ window.drwDoOverlay = async function(idx) {
     zoomContainer.style.transformOrigin = 'top center';
     zoomContainer.style.transition = 'transform 150ms ease';
     
-    function updateZoom() { zoomContainer.style.transform = `scale(${zoomLevel})`; }
+    function updateZoom() { zoomContainer.style.transform = `translate(${panX}px,${panY}px) scale(${zoomLevel})`; }
+    let panX=0,panY=0,panning=false,panStartX,panStartY;
+    zoomContainer.parentElement.addEventListener('mousedown', (ev) => {
+      if (ev.button !== 0) return;
+      panning = true; panStartX = ev.clientX - panX; panStartY = ev.clientY - panY;
+      zoomContainer.parentElement.style.cursor = 'grabbing';
+      ev.preventDefault();
+    });
+    window.addEventListener('mousemove', (ev) => {
+      if (!panning) return;
+      panX = ev.clientX - panStartX; panY = ev.clientY - panStartY;
+      updateZoom();
+    });
+    window.addEventListener('mouseup', () => { panning = false; zoomContainer.parentElement.style.cursor = ''; });
+    zoomContainer.parentElement.style.cursor = 'grab';
+    zoomContainer.parentElement.style.overflow = 'hidden';
     zoomContainer.parentElement.addEventListener('wheel', (ev) => {
       ev.preventDefault();
       const delta = ev.deltaY > 0 ? -0.15 : 0.15;
@@ -709,7 +737,12 @@ async function drwGeneratePDF() {
     let origBuf = await fetch(u1).then(r => r.arrayBuffer());
     URL.revokeObjectURL(u1);
     clearInterval(window._fpTimer); $id('progFill').style.width = '25%';
-    const origP = await safeLoadPDF(origBuf,'Original PDF'); origBuf = null;
+    let origP, loadErr;
+    try { origP = await safeLoadPDF(origBuf,'Original PDF'); } catch(e) {
+      if (e.message.includes('allocation')) throw new Error('PDF too large for browser memory. Try a smaller file or use Firefox (higher memory limit). Original error: '+e.message);
+      throw e;
+    }
+    origBuf = null;
     const newP = await PDFDocument.create();
     let cur = 0;
     const ins = [...insertions].sort((a,b) => (a.newPos||a.newPage)-(b.newPos||b.newPage));
