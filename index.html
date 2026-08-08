@@ -895,7 +895,7 @@ async function drwGeneratePDF() {
     let origBuf = await fetch(u1).then(r => r.arrayBuffer());
     URL.revokeObjectURL(u1);
     clearInterval(window._fpTimer); $id('progFill').style.width = '25%';
-    let origP, loadErr;
+    let origP = null, loadErr;
     try { origP = await safeLoadPDF(origBuf,'Original PDF'); } catch(e) {
       if (e.message.includes('allocation')) throw new Error('PDF too large for browser memory. Try a smaller file or use Firefox (higher memory limit). Original error: '+e.message);
       throw e;
