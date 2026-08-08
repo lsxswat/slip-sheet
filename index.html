@@ -161,7 +161,7 @@ main{flex:1;display:flex;overflow:hidden;position:relative}
 .prog-overlay .stxt{font-size:20px;font-weight:600;color:var(--text);letter-spacing:-.01em}
 .prog-track{width:66vw;min-width:300px;max-width:800px;height:5px;background:var(--border);border-radius:3px;overflow:hidden}
 .prog-fill{height:100%;background:var(--accent);border-radius:3px;transition:width 300ms ease;width:0%}
-.prog-track.secondary{height:3px;margin-top:6px;width:50vw;min-width:200px;max-width:600px}
+.prog-track.secondary{height:3px;margin-top:6px;width:50vw;min-width:200px;max-width:600px;position:relative}.prog-track.secondary::after{content:attr(data-label);position:absolute;right:-60px;top:-3px;font-size:11px;color:var(--text-tertiary);white-space:nowrap}
 .prog-fill.secondary{background:var(--text-tertiary);transition:width 150ms ease}
 
 /* Toast */
@@ -179,6 +179,8 @@ main{flex:1;display:flex;overflow:hidden;position:relative}
 
 @keyframes fadeInUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 .fui{animation:fadeInUp var(--ease-slow) ease-out}
+@keyframes pagePulse{0%{width:0%}50%{width:100%}100%{width:0%}}
+.prog-fill.secondary.pulse{animation:pagePulse .8s ease-in-out infinite}
 </style>
 </head>
 <body>
@@ -1058,7 +1060,9 @@ async function drwGenerateByteLevel(origSize, updSize) {
     const pageTreeKids = [];
     
     for (let pi = 0; pi < totalP; pi++) {
-      prog(`Byte-level: Processing page ${pi+1}/${totalP}`, 40 + Math.floor(pi/totalP*50));
+      prog(`Byte-level: Page ${pi+1}/${totalP}`, 40 + Math.floor(pi/totalP*50));
+      prog2('', 0); $id('progTrack2').style.display = '';
+      $id('progTrack2').setAttribute('data-label', `pg ${pi+1}`);
       if (pi % 5 === 0) await sleep(0);
       
       const entry = finalOrder[pi];
@@ -1066,19 +1070,19 @@ async function drwGenerateByteLevel(origSize, updSize) {
         const origPage = origPages[entry.origPageIdx];
         if (origPage) {
           addObjectTree(pdfData, origPage.objNum, 'orig');
-          pageTreeKids.push(objectMap['orig:' + origPage.objNum]);
+          pageTreeKids.push(objectMap['orig:' + origPage.objNum]); prog2('', 50);
         }
       } else if (entry.type === 'replace') {
         const updPage = updPages ? updPages[entry.action.updatePage - 1] : null;
         if (updPage) {
           addObjectTree(updData, updPage.objNum, 'upd');
-          pageTreeKids.push(objectMap['upd:' + updPage.objNum]);
+          pageTreeKids.push(objectMap['upd:' + updPage.objNum]); prog2('', 50);
         }
       } else if (entry.type === 'insert') {
         const updPage = updPages ? updPages[entry.action.updatePage - 1] : null;
         if (updPage) {
           addObjectTree(updData, updPage.objNum, 'upd');
-          pageTreeKids.push(objectMap['upd:' + updPage.objNum]);
+          pageTreeKids.push(objectMap['upd:' + updPage.objNum]); prog2('', 50);
         }
       }
     }
