@@ -965,6 +965,9 @@ async function drwGeneratePDF() {
     }
 
     prog('Saving PDF…', 92); await sleep(100);
+    // Release source PDFs before save to reduce peak memory
+    origP = null; updP = null;
+    await sleep(50);
     const bytes = await newP.save();
     _lastName = Drw.orig.fileName.replace(/\.pdf$/i,'')+'_Updated.pdf';
     _lastBlob = new Blob([bytes],{type:'application/pdf'});
@@ -1124,23 +1127,17 @@ async function drwGenerateByteLevel(origSize, updSize) {
     xref += `trailer\n<< /Size ${nextObjNum} /Root ${catalogNum} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
     outputParts.push(new TextEncoder().encode(xref));
     
-    // Release raw input buffers before final assembly
-    origRawBuf = null; updRawBuf = null;
-    await sleep(100); // Let GC breathe
+    // Release raw input buffers
+    origRawBuf = null; updRawBuf = null; pdfData = null; updData = null;
+    await sleep(100);
     
-    // Final assembly
+    // Use Blob directly — no single giant ArrayBuffer allocation
     const totalLen = outputParts.reduce((acc, p) => acc + p.length, 0);
-    prog('Byte-level: Assembling final PDF ('+(totalLen/1024/1024).toFixed(1)+'MB)…', 95);
+    prog('Byte-level: Building final PDF ('+(totalLen/1024/1024).toFixed(1)+'MB)…', 95);
     await sleep(50);
-    const finalBuf = new Uint8Array(totalLen);
-    let offset = 0;
-    for (const part of outputParts) {
-      finalBuf.set(part, offset);
-      offset += part.length;
-    }
     
     _lastName = Drw.orig.fileName.replace(/\.pdf$/i,'')+'_Updated.pdf';
-    _lastBlob = new Blob([finalBuf], {type:'application/pdf'});
+    _lastBlob = new Blob(outputParts, {type:'application/pdf'});
     download(_lastBlob, _lastName);
     prog('Done!',100); await sleep(500); progOff();
     $id('drwDlBtn').style.display = '';
